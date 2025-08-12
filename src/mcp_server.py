@@ -5,14 +5,14 @@ from fastapi_mcp import FastApiMCP
 from typing import Dict, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
-from milvus_connector import search_similar_documents, add_document, ensure_collection_exists
-from sow_generator import generate_sow
+from src.milvus_connector import search_similar_documents, add_document, ensure_collection_exists
+from src.sow_generator import generate_sow
 import asyncio
 from pathlib import Path
-from constants import mcp_config
+from src.constants import mcp_config
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
-from order_store import create_order, list_orders, update_status
+from src.order_store import create_order, list_orders, update_status
 
 try:
     from docx import Document
@@ -296,7 +296,7 @@ async def extract_line_items(text: str):
 
     Returns: List[{item, quantity, unit_cost}] (best-effort)
     """
-    from milvus_connector import client as openai_client
+    from src.milvus_connector import client as openai_client
     system_msg = (
         "Extract a list of quote line items from the text. "
         "Respond ONLY with JSON in the form: {\"items\":[{\"item\":str,\"quantity\":number,\"unit_cost\":number}, ...]} . "

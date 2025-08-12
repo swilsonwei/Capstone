@@ -1,8 +1,8 @@
 from typing import List, Dict
 import json
 
-from constants import RERANKING_MODEL
-from milvus_connector import search_similar_documents, client
+from src.constants import RERANKING_MODEL
+from src.milvus_connector import search_similar_documents, client
 
 
 async def generate_sow(upload_text: str, customer_name: str | None = None, project_title: str | None = None) -> str:

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import List, Dict
 
-from milvus_connector import get_embedding
+from src.milvus_connector import get_embedding
 from constants import COLLECTION_NAME
 
 try:

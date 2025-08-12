@@ -1,6 +1,6 @@
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
-from constants import mcp_config, GITHUB_MCP_PAT
+from src.constants import mcp_config, GITHUB_MCP_PAT
 import asyncio
 import os 
 
