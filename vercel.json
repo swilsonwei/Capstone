@@ -1,0 +1,13 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/agent/:path*", "destination": "https://<YOUR-BACKEND-DOMAIN>/agent/:path*" },
+    { "source": "/orders/:path*", "destination": "https://<YOUR-BACKEND-DOMAIN>/orders/:path*" },
+    { "source": "/sow/:path*", "destination": "https://<YOUR-BACKEND-DOMAIN>/sow/:path*" },
+    { "source": "/", "destination": "/cpq_agent.html" },
+    { "source": "/agent", "destination": "/cpq_agent.html" },
+    { "source": "/rfps", "destination": "/rfps.html" },
+    { "source": "/orders", "destination": "/orders.html" }
+  ]
+}
+
