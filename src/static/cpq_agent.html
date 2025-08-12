@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>CPQ Agent</title>
+    <style>
+      * { box-sizing: border-box; }
+      :root {
+        --bg: #f6f7fb;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #2563eb;
+        --accent-600: #1d4ed8;
+        --accent-700: #1e40af;
+        --table-header: #f1f5f9;
+      }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans";
+      }
+      .container { max-width: 1120px; margin: 0 auto; padding: 24px; }
+      .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+      .tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+      .tab { padding: 10px 12px; border: 1px solid transparent; border-top-left-radius: 8px; border-top-right-radius: 8px; color: var(--muted); text-decoration: none; }
+      .tab.active { color: var(--text); background: var(--surface); border-color: var(--border) var(--border) #fff; }
+      .title { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+      .subtitle { color: var(--muted); font-size: 13px; }
+      .two-col { display: grid; grid-template-columns: 1fr; gap: 24px; }
+      @media (min-width: 960px) { .two-col { grid-template-columns: 1fr 1fr; } }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: 0 1px 2px rgba(16,24,40,.04);
+      }
+      .card h2 { margin: 0 0 12px; font-size: 16px; }
+      label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+      textarea, input[type="file"] {
+        width: 100%;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        color: var(--text);
+      }
+      /* Make the file input align and size like other controls */
+      input[type="file"] { height: 40px; padding: 6px 10px; }
+      /* Modern browsers */
+      input[type="file"]::file-selector-button {
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-right: 12px;
+        cursor: pointer;
+      }
+      /* Safari/WebKit */
+      input[type="file"]::-webkit-file-upload-button {
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-right: 12px;
+        cursor: pointer;
+      }
+      textarea { height: 140px; resize: vertical; }
+      .row { margin-bottom: 14px; }
+      .actions { display: flex; gap: 10px; }
+      button {
+        appearance: none;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .15s ease, border-color .15s ease;
+      }
+      button:hover { background: var(--accent-600); border-color: var(--accent-600); }
+      button:active { background: var(--accent-700); border-color: var(--accent-700); }
+      pre {
+        background: #fafafa;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 12px;
+        line-height: 1.45;
+        max-height: 280px;
+        overflow: auto;
+        width: 100%;
+      }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+      th, td { border: 1px solid var(--border); padding: 8px 10px; }
+      thead th { background: var(--table-header); text-align: left; }
+      tbody tr:nth-child(even) { background: #fcfcfd; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div>
+          <div class="title">CPQ Agent</div>
+          <div class="subtitle">Upload SOPs or meeting notes, ingest to Milvus, and orchestrate agent actions</div>
+        </div>
+      </div>
+      <nav class="tabs">
+        <a class="tab active" href="/agent">Home</a>
+        <a class="tab" href="/rfps">RFP's</a>
+        <a class="tab" href="/orders">Orders</a>
+      </nav>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Run Agent</h2>
+          <div class="row">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+          </div>
+          <div class="row actions">
+            <button id="run">Run Agent</button>
+          </div>
+          <h3 style="margin-top:14px">Result</h3>
+          <pre id="result">(no result yet)</pre>
+        </div>
+
+        <div class="card">
+          <h2>Upload and Ingest</h2>
+          <form id="uploadForm">
+            <div class="row">
+              <label for="file">Select PDF or DOCX</label>
+              <input type="file" id="file" accept=".pdf,.docx" required />
+            </div>
+            <div class="row actions">
+              <button type="submit">Upload & Ingest</button>
+              <button id="openPdf" type="button" style="display:none">Open PDF Preview</button>
+            </div>
+          </form>
+          <h3 style="margin-top:14px">Ingest Result</h3>
+          <div id="tableWrap"></div>
+          <pre id="ingestResult">(no result yet)</pre>
+        </div>
+      </div>
+    </div>
+    <script>
+      const runBtn = document.getElementById('run');
+      const promptEl = document.getElementById('prompt');
+      const resultEl = document.getElementById('result');
+      const uploadForm = document.getElementById('uploadForm');
+      const fileEl = document.getElementById('file');
+      const ingestResultEl = document.getElementById('ingestResult');
+      const tableWrap = document.getElementById('tableWrap');
+      const openPdfBtn = document.getElementById('openPdf');
+
+      runBtn.addEventListener('click', async () => {
+        resultEl.textContent = 'Running...';
+        try {
+          const res = await fetch('/agent/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptEl.value })
+          });
+          const data = await res.json();
+          resultEl.textContent = JSON.stringify(data, null, 2);
+        } catch (e) {
+          resultEl.textContent = 'Error: ' + e;
+        }
+      });
+
+      uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        ingestResultEl.textContent = 'Uploading...';
+        try {
+          const fd = new FormData();
+          if (!fileEl.files.length) {
+            ingestResultEl.textContent = 'Please select a file';
+            return;
+          }
+          fd.append('file', fileEl.files[0]);
+          const res = await fetch('/agent/upload', {
+            method: 'POST',
+            body: fd
+          });
+          const data = await res.json();
+          ingestResultEl.textContent = JSON.stringify(data, null, 2);
+          if (data && Array.isArray(data.items) && data.items.length) {
+            const tbl = document.createElement('table');
+            tbl.border = '1';
+            tbl.cellPadding = '6';
+            const thead = document.createElement('thead');
+            thead.innerHTML = '<tr><th>Item</th><th>Quantity</th><th>Unit Cost</th><th>Line Total</th></tr>';
+            tbl.appendChild(thead);
+            const tbody = document.createElement('tbody');
+            for (const it of data.items) {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                <td>${(it.item||'')}</td>
+                <td style="text-align:right">${Number(it.quantity||0)}</td>
+                <td style="text-align:right">$${Number(it.unit_cost||0).toFixed(2)}</td>
+                <td style="text-align:right">$${Number(it.line_total||0).toFixed(2)}</td>
+              `;
+              tbody.appendChild(tr);
+            }
+            const trSub = document.createElement('tr');
+            trSub.innerHTML = `
+              <td colspan="3" style="text-align:right;font-weight:bold">Subtotal</td>
+              <td style="text-align:right;font-weight:bold">$${Number(data.subtotal||0).toFixed(2)}</td>
+            `;
+            tbody.appendChild(trSub);
+            tbl.appendChild(tbody);
+            tableWrap.innerHTML = '';
+            tableWrap.appendChild(tbl);
+
+            openPdfBtn.style.display = 'inline-block';
+            openPdfBtn.onclick = async () => {
+              const pdfRes = await fetch('/agent/quote_pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: data.items, subtotal: data.subtotal })
+              });
+              const blob = await pdfRes.blob();
+              const url = URL.createObjectURL(blob);
+              window.open(url, '_blank');
+            };
+          } else {
+            tableWrap.innerHTML = '';
+            openPdfBtn.style.display = 'none';
+          }
+        } catch (e) {
+          ingestResultEl.textContent = 'Error: ' + e;
+        }
+      });
+    </script>
+  </body>
+  </html>
+
+

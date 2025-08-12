@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>SmartOrg MCP Client</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+      textarea { width: 100%; height: 120px; }
+      pre { background: #f7f7f7; padding: 12px; overflow: auto; }
+      .row { margin-bottom: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>SmartOrg MCP Agent</h1>
+    <div class="row">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+    </div>
+    <div class="row">
+      <button id="run">Run Agent</button>
+    </div>
+    <h3>Result</h3>
+    <pre id="result">(no result yet)</pre>
+    <script>
+      const runBtn = document.getElementById('run');
+      const promptEl = document.getElementById('prompt');
+      const resultEl = document.getElementById('result');
+      runBtn.addEventListener('click', async () => {
+        resultEl.textContent = 'Running...';
+        try {
+          const res = await fetch('/agent/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptEl.value })
+          });
+          const data = await res.json();
+          resultEl.textContent = JSON.stringify(data, null, 2);
+        } catch (e) {
+          resultEl.textContent = 'Error: ' + e;
+        }
+      });
+    </script>
+  </body>
+</html>
+
+

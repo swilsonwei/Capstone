@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Orders</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f7fb; color:#0f172a; margin:0; }
+      .container{ max-width: 960px; margin:0 auto; padding:24px; }
+      .tabs { display:flex; gap:10px; border-bottom:1px solid #e5e7eb; margin-bottom:20px; }
+      .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
+      .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
+      .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      table { width:100%; border-collapse:collapse; font-size:14px; }
+      th, td { border:1px solid #e5e7eb; padding:8px 10px; }
+      thead th { background:#f1f5f9; text-align:left; }
+      select { padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <nav class="tabs">
+        <a class="tab" href="/agent">Home</a>
+        <a class="tab" href="/rfps">RFP's</a>
+        <a class="tab active" href="/orders">Orders</a>
+      </nav>
+      <div class="card">
+        <h2>Orders</h2>
+        <table id="ordersTbl">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Source File</th>
+              <th>Items</th>
+              <th>Subtotal</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <script>
+      async function loadOrders(){
+        const res = await fetch('/orders/data');
+        const data = await res.json();
+        const tbody = document.querySelector('#ordersTbl tbody');
+        tbody.innerHTML='';
+        for(const o of (data.orders||[])){
+          const tr = document.createElement('tr');
+          const sel = document.createElement('select');
+          for(const s of ['Quoted','Sent','Received']){
+            const opt = document.createElement('option');
+            opt.value=s; opt.textContent=s; if(o.status===s) opt.selected=true; sel.appendChild(opt);
+          }
+          sel.onchange = async ()=>{
+            await fetch('/orders/status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:o.id, status:sel.value})});
+          };
+          tr.innerHTML = `
+            <td>${o.id}</td>
+            <td>${o.source_file}</td>
+            <td>${o.items_count}</td>
+            <td>$${Number(o.subtotal||0).toFixed(2)}</td>
+            <td></td>
+            <td>${o.created_at||''}</td>
+          `;
+          tr.children[4].appendChild(sel);
+          tbody.appendChild(tr);
+        }
+      }
+      loadOrders();
+    </script>
+  </body>
+  </html>
+
+
