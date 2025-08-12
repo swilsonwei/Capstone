@@ -1,13 +1,8 @@
 {
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/agent/:path*", "destination": "https://capstone-w85i.onrender.com/agent/:path*" },
+    { "source": "/agent/:path*",  "destination": "https://capstone-w85i.onrender.com/agent/:path*" },
     { "source": "/orders/:path*", "destination": "https://capstone-w85i.onrender.com/orders/:path*" },
-    { "source": "/sow/:path*",   "destination": "https://capstone-w85i.onrender.com/sow/:path*" },
-    { "source": "/",        "destination": "/src/static/cpq_agent.html" },
-    { "source": "/agent",   "destination": "/src/static/cpq_agent.html" },
-    { "source": "/rfps",    "destination": "/src/static/rfps.html" },
-    { "source": "/orders",  "destination": "/src/static/orders.html" }
+    { "source": "/sow/:path*",    "destination": "https://capstone-w85i.onrender.com/sow/:path*" }
   ]
 }
-
