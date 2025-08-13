@@ -30,6 +30,7 @@
             <tr>
               <th>ID</th>
               <th>Source File</th>
+              <th>Quote PDF</th>
               <th>Items</th>
               <th>Subtotal</th>
               <th>Status</th>
@@ -56,9 +57,11 @@
           sel.onchange = async ()=>{
             await fetch('/orders/status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:o.id, status:sel.value})});
           };
+          const pdfLink = `<a href="/orders/pdf/${o.id}" target="_blank">Open</a>`;
           tr.innerHTML = `
             <td>${o.id}</td>
             <td>${o.source_file}</td>
+            <td>${pdfLink}</td>
             <td>${o.items_count}</td>
             <td>$${Number(o.subtotal||0).toFixed(2)}</td>
             <td></td>

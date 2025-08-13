@@ -114,9 +114,10 @@
         </div>
       </div>
       <nav class="tabs">
-        <a class="tab active" href="/agent">Home</a>
+        <a class="tab active" href="/">Home</a>
         <a class="tab" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
+        <a class="tab" href="/logs">Logs</a>
       </nav>
 
       <div class="two-col">
@@ -148,6 +149,7 @@
           <h3 style="margin-top:14px">Ingest Result</h3>
           <div id="tableWrap"></div>
           <pre id="ingestResult">(no result yet)</pre>
+          <div id="pricingLink" style="margin-top:8px"></div>
         </div>
       </div>
     </div>
@@ -192,6 +194,11 @@
           });
           const data = await res.json();
           ingestResultEl.textContent = JSON.stringify(data, null, 2);
+          if (data && data.order && data.order.id && data.pricing_url){
+            document.getElementById('pricingLink').innerHTML = `<a href="${data.pricing_url}">Go to Pricing for Order ${data.order.id}</a>`;
+          } else {
+            document.getElementById('pricingLink').innerHTML = '';
+          }
           if (data && Array.isArray(data.items) && data.items.length) {
             const tbl = document.createElement('table');
             tbl.border = '1';

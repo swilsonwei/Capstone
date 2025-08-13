@@ -12,7 +12,8 @@ from pathlib import Path
 from src.constants import mcp_config
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
-from src.order_store import create_order, list_orders, update_status
+from src.order_store import create_order, list_orders, update_status, get_order, update_items
+from src.audit_log import append_log, list_logs
 
 try:
     from docx import Document
@@ -146,10 +147,10 @@ async def sow_form():
 <html>
   <head>
     <meta charset=\"utf-8\" />
-    <title>SmartOrg SOW Generator</title>
+    <title>SOW Generator</title>
   </head>
   <body>
-    <h1>SmartOrg SOW Generator</h1>
+    <h1>SOW Generator</h1>
     <form id=\"form\" method=\"post\" action=\"/sow/upload\" enctype=\"multipart/form-data\">
       <label>Customer (optional): <input type=\"text\" name=\"customer\" /></label><br/>
       <label>Title (optional): <input type=\"text\" name=\"title\" /></label><br/>
@@ -173,8 +174,14 @@ async def agent_run(req: AgentRunRequest):
         llm = ChatOpenAI(model="gpt-4o-mini", streaming=False)
         agent = MCPAgent(llm=llm, client=client, max_steps=20)
         result = await agent.run(req.prompt)
+        append_log({
+            "type": "agent_run",
+            "prompt": req.prompt,
+            "result": result,
+        })
         return {"result": result}
     except Exception as e:
+        append_log({"type": "agent_run_error", "prompt": req.prompt, "error": str(e)})
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 
@@ -280,7 +287,16 @@ async def agent_upload(file: UploadFile = File(...)):
             "line_total": line_total,
         })
 
-    order = create_order(file.filename, subtotal, len(normalized_items), status="Quoted")
+    order = create_order(file.filename, subtotal, len(normalized_items), status="Quoted", items=normalized_items)
+    append_log({
+        "type": "upload_ingest",
+        "file": file.filename,
+        "chunks": len(chunks),
+        "inserted": success,
+        "order_id": order.get("id"),
+        "items_count": len(normalized_items),
+        "subtotal": subtotal,
+    })
     return {
         "file": file.filename,
         "chunks": len(chunks),
@@ -288,6 +304,7 @@ async def agent_upload(file: UploadFile = File(...)):
         "items": normalized_items,
         "subtotal": subtotal,
         "order": order,
+        "pricing_url": f"/pricing/{order.get('id')}"
     }
 
 
@@ -343,7 +360,7 @@ async def agent_quote_pdf(payload: Dict):
     y = height - 1 * inch
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(1 * inch, y, "SmartOrg Quote Preview")
+    c.drawString(1 * inch, y, "Quote Preview")
     y -= 0.4 * inch
     c.setFont("Helvetica", 10)
     c.drawString(1 * inch, y, "Item")
@@ -384,7 +401,110 @@ async def agent_quote_pdf(payload: Dict):
     headers = {
         "Content-Disposition": "inline; filename=quote_preview.pdf",
     }
+    append_log({"type": "quote_pdf", "items": len(items), "subtotal": subtotal})
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+
+
+@app.get("/orders/pdf/{order_id}")
+async def orders_pdf(order_id: str):
+    if canvas is None:
+        return JSONResponse(status_code=400, content={"error": "reportlab not installed"})
+    order = get_order(order_id)
+    if not order:
+        return JSONResponse(status_code=404, content={"error": "order not found"})
+    items = order.get("items", [])
+    subtotal = float(order.get("subtotal", 0))
+
+    pdf_buffer = BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=letter)
+    width, height = letter
+    y = height - 1 * inch
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(1 * inch, y, f"Quote {order_id}")
+    y -= 0.4 * inch
+    c.setFont("Helvetica", 10)
+    c.drawString(1 * inch, y, f"Source: {order.get('source_file','')}")
+    y -= 0.25 * inch
+    c.drawString(1 * inch, y, "Item")
+    c.drawString(4.2 * inch, y, "Qty")
+    c.drawString(4.8 * inch, y, "Unit Cost")
+    c.drawString(5.8 * inch, y, "Line Total")
+    y -= 0.25 * inch
+
+    c.setFont("Helvetica", 9)
+    for it in items:
+        if y < 1 * inch:
+            c.showPage()
+            y = height - 1 * inch
+            c.setFont("Helvetica", 9)
+        name = str(it.get("item", ""))[:60]
+        try:
+            qty = float(it.get("quantity", 0))
+        except Exception:
+            qty = 0.0
+        try:
+            unit_cost = float(it.get("unit_cost", 0))
+        except Exception:
+            unit_cost = 0.0
+        line_total = float(it.get("line_total", qty * unit_cost))
+        c.drawString(1 * inch, y, name)
+        c.drawRightString(4.6 * inch, y, f"{qty:g}")
+        c.drawRightString(5.6 * inch, y, f"${unit_cost:,.2f}")
+        c.drawRightString(7.5 * inch, y, f"${line_total:,.2f}")
+        y -= 0.22 * inch
+
+    y -= 0.2 * inch
+    c.setFont("Helvetica-Bold", 11)
+    c.drawRightString(7.5 * inch, y, f"Subtotal: ${subtotal:,.2f}")
+
+    c.showPage()
+    c.save()
+    pdf_buffer.seek(0)
+    headers = {"Content-Disposition": f"inline; filename={order_id}.pdf"}
+    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+
+
+@app.get("/logs/data")
+async def logs_data(limit: int = 200):
+    return {"logs": list_logs(limit=limit)}
+
+
+class PricingUpdate(BaseModel):
+    items: list
+
+
+@app.get("/pricing/{order_id}")
+async def pricing_page(order_id: str):
+    page = static_dir / "pricing.html"
+    if page.exists():
+        return FileResponse(str(page), media_type="text/html")
+    return JSONResponse(status_code=404, content={"error": "pricing.html not found"})
+
+
+@app.get("/pricing/data/{order_id}")
+async def pricing_data(order_id: str):
+    order = get_order(order_id)
+    if not order:
+        return JSONResponse(status_code=404, content={"error": "order not found"})
+    return {
+        "order": {
+            "id": order.get("id"),
+            "source_file": order.get("source_file"),
+            "items": order.get("items", []),
+            "subtotal": order.get("subtotal", 0),
+            "status": order.get("status")
+        }
+    }
+
+
+@app.post("/pricing/save/{order_id}")
+async def pricing_save(order_id: str, body: PricingUpdate):
+    updated = update_items(order_id, body.items or [])
+    if not updated:
+        return JSONResponse(status_code=404, content={"error": "order not found"})
+    append_log({"type": "pricing_save", "order_id": order_id, "items": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)})
+    return {"ok": True, "order": updated}
 
 
 @app.get("/orders/data")

@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Logs</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f7fb; color:#0f172a; margin:0; }
+      .container{ max-width: 1120px; margin:0 auto; padding:24px; }
+      .tabs { display:flex; gap:10px; border-bottom:1px solid #e5e7eb; margin-bottom:20px; }
+      .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
+      .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
+      .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      table { width:100%; border-collapse:collapse; font-size:13px; }
+      th, td { border:1px solid #e5e7eb; padding:8px 10px; vertical-align: top; }
+      thead th { background:#f1f5f9; text-align:left; }
+      pre { margin:0; white-space:pre-wrap; word-break:break-word; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <nav class="tabs">
+        <a class="tab" href="/">Home</a>
+        <a class="tab" href="/rfps">RFP's</a>
+        <a class="tab" href="/orders">Orders</a>
+        <a class="tab active" href="/logs">Logs</a>
+      </nav>
+      <div class="card">
+        <h2>Audit Trail</h2>
+        <table id="logTbl">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <script>
+      async function loadLogs(){
+        const res = await fetch('/logs/data');
+        const data = await res.json();
+        const tbody = document.querySelector('#logTbl tbody');
+        tbody.innerHTML = '';
+        for(const lg of (data.logs||[])){
+          const tr = document.createElement('tr');
+          const details = Object.assign({}, lg);
+          delete details.id; delete details.time; delete details.type;
+          tr.innerHTML = `
+            <td>${lg.id||''}</td>
+            <td>${lg.time||''}</td>
+            <td>${lg.type||''}</td>
+            <td><pre>${JSON.stringify(details, null, 2)}</pre></td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+      loadLogs();
+    </script>
+  </body>
+  </html>
+
+

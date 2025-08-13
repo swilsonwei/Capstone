@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Pricing</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f7fb; color:#0f172a; margin:0; }
+      .container{ max-width: 1120px; margin:0 auto; padding:24px; }
+      .breadcrumbs { margin-bottom: 12px; }
+      a { color:#2563eb; text-decoration:none; }
+      .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      table { width:100%; border-collapse:collapse; font-size:14px; }
+      th, td { border:1px solid #e5e7eb; padding:8px 10px; }
+      thead th { background:#f1f5f9; text-align:left; }
+      input[type="text"], input[type="number"] { width:100%; padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; }
+      .actions { display:flex; gap:10px; margin-top:12px; }
+      button { padding:10px 14px; border-radius:8px; border:1px solid #2563eb; background:#2563eb; color:#fff; cursor:pointer; }
+      button.secondary { background:#fff; color:#2563eb; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="breadcrumbs">
+        <a href="/">← Back to CPQ</a> &nbsp;|&nbsp; <a href="/orders">Orders</a>
+      </div>
+      <div class="card">
+        <h2>Pricing</h2>
+        <div id="meta"></div>
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th style="width:50%">Item</th>
+              <th style="width:12%">Quantity</th>
+              <th style="width:18%">Unit Cost</th>
+              <th style="width:20%">Line Total</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="actions">
+          <button id="save">Save</button>
+          <button id="cancel" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      const orderId = location.pathname.split('/').pop();
+      const tbody = document.querySelector('#tbl tbody');
+      const meta = document.getElementById('meta');
+      let original = null;
+
+      function row(item){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" value="${item.item||''}" /></td>
+          <td><input type="number" step="0.01" value="${Number(item.quantity||0)}" /></td>
+          <td><input type="number" step="0.01" value="${Number(item.unit_cost||0)}" /></td>
+          <td class="total">$${Number(item.line_total||0).toFixed(2)}</td>
+        `;
+        const [iName, iQty, iCost] = tr.querySelectorAll('input');
+        function recalc(){
+          const qty = parseFloat(iQty.value||'0')||0;
+          const cost = parseFloat(iCost.value||'0')||0;
+          tr.querySelector('.total').textContent = `$${(qty*cost).toFixed(2)}`;
+        }
+        iQty.addEventListener('input', recalc);
+        iCost.addEventListener('input', recalc);
+        return tr;
+      }
+
+      async function load(){
+        const res = await fetch(`/pricing/data/${orderId}`);
+        const data = await res.json();
+        const o = data.order;
+        original = JSON.parse(JSON.stringify(o));
+        meta.textContent = `Order ${o.id} — Source: ${o.source_file} — Subtotal: $${Number(o.subtotal||0).toFixed(2)}`;
+        tbody.innerHTML='';
+        for(const it of (o.items||[])) tbody.appendChild(row(it));
+      }
+
+      document.getElementById('cancel').onclick = ()=>{ load(); };
+      document.getElementById('save').onclick = async ()=>{
+        const items=[];
+        for(const tr of tbody.querySelectorAll('tr')){
+          const [iName, iQty, iCost] = tr.querySelectorAll('input');
+          items.push({ item:iName.value, quantity: parseFloat(iQty.value||'0')||0, unit_cost: parseFloat(iCost.value||'0')||0 });
+        }
+        const res = await fetch(`/pricing/save/${orderId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items }) });
+        const data = await res.json();
+        if(data && data.ok){
+          // Reload to show recomputed totals
+          await load();
+          alert('Saved');
+        } else {
+          alert('Save failed');
+        }
+      };
+
+      load();
+    </script>
+  </body>
+  </html>
+
+
