@@ -14,6 +14,7 @@ from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
 from src.order_store import create_order, list_orders, update_status, get_order, update_items
 from src.audit_log import append_log, list_logs
+from src.mcp_client import main as mcp_client_run
 
 try:
     from docx import Document
@@ -297,6 +298,12 @@ async def agent_upload(file: UploadFile = File(...)):
         "items_count": len(normalized_items),
         "subtotal": subtotal,
     })
+    # Kick off MCP client asynchronously for post-upload quote generation
+    try:
+        asyncio.create_task(mcp_client_run())
+        append_log({"type": "mcp_client_triggered", "order_id": order.get("id")})
+    except Exception as e:
+        append_log({"type": "mcp_client_error", "order_id": order.get("id"), "error": str(e)})
     return {
         "file": file.filename,
         "chunks": len(chunks),

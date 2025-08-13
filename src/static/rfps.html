@@ -10,6 +10,8 @@
       .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
       .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
       .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      .two-col { display:grid; grid-template-columns: 1fr .8fr; gap:24px; }
+      .sticky { position: sticky; top: 16px; }
       .row { margin-bottom: 14px; }
       label { display:block; font-size:13px; color:#6b7280; margin-bottom:6px; }
       textarea, input[type="file"] { width:100%; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; font-size:14px; color:#0f172a; }
@@ -32,9 +34,10 @@
         <a class="tab" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
       </nav>
-      <div class="card">
-        <h2>RFP Upload</h2>
-        <form id="uploadForm">
+      <div class="two-col">
+        <div class="card">
+          <h2>RFP Upload</h2>
+          <form id="uploadForm">
           <div class="row">
             <label for="file">Select PDF or DOCX</label>
             <input type="file" id="file" accept=".pdf,.docx" required />
@@ -42,11 +45,24 @@
           <div class="row">
             <button type="submit">Upload & Ingest</button>
           </div>
-        </form>
-        <h3>Ingest Result</h3>
-        <div id="tableWrap"></div>
-        <pre id="ingestResult">(no result yet)</pre>
-        <button id="openPdf" style="display:none">Open PDF Preview</button>
+          </form>
+          <h3>Ingest Result</h3>
+          <div id="tableWrap"></div>
+          <pre id="ingestResult">(no result yet)</pre>
+          <button id="openPdf" style="display:none">Open PDF Preview</button>
+        </div>
+        <div class="card sticky">
+          <h2>Run Agent</h2>
+          <div class="row">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" style="width:100%;height:120px">Say hello and list the available MCP tools.</textarea>
+          </div>
+          <div class="row">
+            <button id="run">Run Agent</button>
+          </div>
+          <h3>Result</h3>
+          <pre id="result">(no result yet)</pre>
+        </div>
       </div>
     </div>
     <script>

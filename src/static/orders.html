@@ -10,6 +10,8 @@
       .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
       .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
       .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      .two-col { display:grid; grid-template-columns: 1fr .8fr; gap:24px; }
+      .sticky { position: sticky; top: 16px; }
       table { width:100%; border-collapse:collapse; font-size:14px; }
       th, td { border:1px solid #e5e7eb; padding:8px 10px; }
       thead th { background:#f1f5f9; text-align:left; }
@@ -25,9 +27,10 @@
         <a class="tab active" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
       </nav>
-      <div class="card">
-        <h2>Orders</h2>
-        <table id="ordersTbl">
+      <div class="two-col">
+        <div class="card">
+          <h2>Orders</h2>
+          <table id="ordersTbl">
           <thead>
             <tr>
               <th>ID</th>
@@ -40,7 +43,20 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+          </table>
+        </div>
+        <div class="card sticky">
+          <h2>Run Agent</h2>
+          <div class="row">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" style="width:100%;height:120px">Say hello and list the available MCP tools.</textarea>
+          </div>
+          <div class="row">
+            <button id="run">Run Agent</button>
+          </div>
+          <h3>Result</h3>
+          <pre id="result">(no result yet)</pre>
+        </div>
       </div>
     </div>
     <script>

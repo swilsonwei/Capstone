@@ -31,7 +31,7 @@
       .title { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
       .subtitle { color: var(--muted); font-size: 13px; }
       .two-col { display: grid; grid-template-columns: 1fr; gap: 24px; }
-      @media (min-width: 960px) { .two-col { grid-template-columns: 1fr 1fr; } }
+      @media (min-width: 960px) { .two-col { grid-template-columns: 1.4fr .8fr; } }
       .card {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -39,6 +39,7 @@
         padding: 18px;
         box-shadow: 0 1px 2px rgba(16,24,40,.04);
       }
+      .sticky { position: sticky; top: 16px; }
       .card h2 { margin: 0 0 12px; font-size: 16px; }
       label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
       textarea, input[type="file"] {
@@ -110,30 +111,17 @@
       <div class="header">
         <div>
           <div class="title">CPQ Agent</div>
-          <div class="subtitle">Upload SOPs or meeting notes, ingest to Milvus, and orchestrate agent actions</div>
         </div>
       </div>
       <nav class="tabs">
-        <a class="tab active" href="/">Home</a>
+        <a class="tab" href="/agent">Home</a>
+        <a class="tab active" href="/">CPQ</a>
         <a class="tab" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
       </nav>
 
       <div class="two-col">
-        <div class="card">
-          <h2>Run Agent</h2>
-          <div class="row">
-            <label for="prompt">Prompt</label>
-            <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
-          </div>
-          <div class="row actions">
-            <button id="run">Run Agent</button>
-          </div>
-          <h3 style="margin-top:14px">Result</h3>
-          <pre id="result">(no result yet)</pre>
-        </div>
-
         <div class="card">
           <h2>Upload and Ingest</h2>
           <form id="uploadForm">
@@ -150,6 +138,19 @@
           <div id="tableWrap"></div>
           <pre id="ingestResult">(no result yet)</pre>
           <div id="pricingLink" style="margin-top:8px"></div>
+        </div>
+
+        <div class="card sticky">
+          <h2>Run Agent</h2>
+          <div class="row">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+          </div>
+          <div class="row actions">
+            <button id="run">Run Agent</button>
+          </div>
+          <h3 style="margin-top:14px">Result</h3>
+          <pre id="result">(no result yet)</pre>
         </div>
       </div>
     </div>
