@@ -26,6 +26,9 @@
       </nav>
       <div class="card">
         <h2>Audit Trail</h2>
+        <div class="row">
+          <button id="refresh">Refresh</button>
+        </div>
         <table id="logTbl">
           <thead>
             <tr>
@@ -59,6 +62,7 @@
         }
       }
       loadLogs();
+      document.getElementById('refresh').onclick = loadLogs;
     </script>
   </body>
   </html>

@@ -174,6 +174,17 @@ async def agent_run(req: AgentRunRequest):
         client = MCPClient(mcp_config)
         llm = ChatOpenAI(model="gpt-4o-mini", streaming=False)
         agent = MCPAgent(llm=llm, client=client, max_steps=20)
+
+        # Try to capture intermediate reasoning/steps if streaming is available
+        try:
+            append_log({"type": "agent_run_start", "prompt": req.prompt})
+            async for step in agent.stream(req.prompt):
+                # Serialize any step/event payload as text for the audit trail
+                append_log({"type": "agent_step", "prompt": req.prompt, "event": str(step)})
+        except Exception as stream_err:
+            # Streaming not supported or failed; record and continue to final run
+            append_log({"type": "agent_stream_unavailable", "prompt": req.prompt, "error": str(stream_err)})
+
         result = await agent.run(req.prompt)
         append_log({
             "type": "agent_run",
@@ -531,6 +542,15 @@ async def orders_status(update: OrderStatusUpdate):
     updated = update_status(update.id, update.status)
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
+    # Audit trail entry on successful update
+    append_log({
+        "type": "order_status_updated",
+        "order_id": update.id,
+        "details": {"status": update.status},
+        "route": "/orders/status",
+        "method": "POST",
+        "status": 200,
+    })
     return updated
 
 
