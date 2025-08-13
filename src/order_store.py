@@ -36,10 +36,35 @@ def _format_order_id(n: int) -> str:
     return f"OD-{n:05d}"
 
 
+def _parse_order_id(order_id: str) -> int:
+    try:
+        return int(str(order_id).split("-")[-1])
+    except Exception:
+        return 0
+
+
+def _next_id_from_supabase() -> int:
+    """Get the next sequential numeric id using Supabase as source of truth."""
+    if not _sb:
+        return 0
+    try:
+        # IDs are zero-padded, so lexicographic desc works
+        resp = _sb.table("orders").select("id").order("id", desc=True).limit(1).execute()
+        last = (resp.data or [])[0]["id"] if hasattr(resp, "data") and resp.data else None
+        last_n = _parse_order_id(last) if last else 0
+        return last_n + 1
+    except Exception:
+        return 0
+
+
 def create_order(source_file: str, subtotal: float, items_count: int, status: str = "Quoted", items: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
     store = _ensure_store()
-    store["last_id"] = int(store.get("last_id", 0)) + 1
-    order_id = _format_order_id(store["last_id"])
+    # Determine next id. Prefer Supabase (shared, persistent); fallback to local JSON counter.
+    next_n = _next_id_from_supabase() if _sb else 0
+    if next_n <= 0:
+        store["last_id"] = int(store.get("last_id", 0)) + 1
+        next_n = store["last_id"]
+    order_id = _format_order_id(next_n)
     order = {
         "id": order_id,
         "source_file": source_file,
@@ -50,15 +75,18 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
         # store items locally for PDF generation (not pushed to Supabase)
         "items": items or [],
     }
+    # Keep local store in sync (does not replace Supabase persistence)
+    # Ensure local last_id is at least next_n
+    store["last_id"] = max(int(store.get("last_id", 0)), next_n)
     store.setdefault("orders", []).append(order)
     _save_store(store)
 
     # Also upsert into Supabase if configured
     if _sb:
         try:
-            # Do not include items column in Supabase upsert
+            # Insert (not upsert) to avoid overwriting existing orders
             row = {k: v for k, v in order.items() if k != "items"}
-            _sb.table("orders").upsert(row).execute()
+            _sb.table("orders").insert(row).execute()
         except Exception:
             pass
     return order
