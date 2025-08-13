@@ -1,6 +1,7 @@
 {
   "cleanUrls": true,
   "rewrites": [
+    { "source": "/pricing/:path*", "destination": "https://capstone-w85i.onrender.com/pricing/:path*" },
     { "source": "/agent/:path*",  "destination": "https://capstone-w85i.onrender.com/agent/:path*" },
     { "source": "/orders/:path*", "destination": "https://capstone-w85i.onrender.com/orders/:path*" },
     { "source": "/sow/:path*",    "destination": "https://capstone-w85i.onrender.com/sow/:path*" }
