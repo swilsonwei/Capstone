@@ -10,8 +10,8 @@ STORE_PATH = DATA_DIR / "orders.json"
 # Optional: Supabase persistence
 try:
     from supabase import create_client
-    from constants import SUPABASE_URL, SUPABASE_SERVICE_KEY
-    _sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_KEY else None
+    from src.constants import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+    _sb = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY else None
 except Exception:
     _sb = None
 

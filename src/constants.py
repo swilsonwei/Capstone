@@ -13,7 +13,7 @@ MILVUS_DATABASE = os.getenv("MILVUS_DATABASE", "default")
 
 # Supabase configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 # Reranking configuration
 ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
