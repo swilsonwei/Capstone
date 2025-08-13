@@ -526,6 +526,18 @@ async def orders_status(update: OrderStatusUpdate):
         return JSONResponse(status_code=404, content={"error": "order not found"})
     return updated
 
+
+@app.get("/orders/stats")
+async def orders_stats():
+    orders = list_orders()
+    total_cost = sum(float(o.get("subtotal", 0) or 0) for o in orders)
+    open_count = sum(1 for o in orders if (o.get("status") in ("Quoted", "Sent")))
+    return {
+        "total_cost": total_cost,
+        "open_count": open_count,
+        "total_count": len(orders)
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 

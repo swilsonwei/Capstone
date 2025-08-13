@@ -2,25 +2,48 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>MCP Client</title>
+    <title>Dashboard & Agent</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
       textarea { width: 100%; height: 120px; }
       pre { background: #f7f7f7; padding: 12px; overflow: auto; }
       .row { margin-bottom: 12px; }
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+      .card { border: 1px solid #eee; border-radius: 8px; padding: 16px; }
+      .tabs { display:flex; gap:10px; border-bottom:1px solid #e5e7eb; margin-bottom:20px; }
+      .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
+      .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
     </style>
   </head>
   <body>
-    <h1>MCP Agent</h1>
-    <div class="row">
-      <label for="prompt">Prompt</label>
-      <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+    <nav class="tabs">
+      <a class="tab active" href="/agent">Home</a>
+      <a class="tab" href="/">CPQ</a>
+      <a class="tab" href="/rfps">RFP's</a>
+      <a class="tab" href="/orders">Orders</a>
+      <a class="tab" href="/logs">Logs</a>
+    </nav>
+    <h1>Dashboard & Agent</h1>
+    <div class="two-col">
+      <div class="card">
+        <h2>Run Agent</h2>
+        <div class="row">
+          <label for="prompt">Prompt</label>
+          <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+        </div>
+        <div class="row">
+          <button id="run">Run Agent</button>
+        </div>
+        <h3>Result</h3>
+        <pre id="result">(no result yet)</pre>
+      </div>
+      <div class="card">
+        <h2>Orders Dashboard</h2>
+        <div class="row">Total Order Cost: <strong id="totCost">$0.00</strong></div>
+        <div class="row">Open Orders: <strong id="openCnt">0</strong></div>
+        <div class="row"><a href="/orders">Go to Orders →</a></div>
+      </div>
     </div>
-    <div class="row">
-      <button id="run">Run Agent</button>
-    </div>
-    <h3>Result</h3>
-    <pre id="result">(no result yet)</pre>
     <script>
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
@@ -39,6 +62,16 @@
           resultEl.textContent = 'Error: ' + e;
         }
       });
+
+      async function loadStats(){
+        try {
+          const res = await fetch('/orders/stats');
+          const data = await res.json();
+          document.getElementById('totCost').textContent = `$${Number(data.total_cost||0).toFixed(2)}`;
+          document.getElementById('openCnt').textContent = Number(data.open_count||0);
+        } catch {}
+      }
+      loadStats();
     </script>
   </body>
 </html>
