@@ -90,12 +90,19 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
     return entry
 
 
-def list_logs(limit: int = 200) -> List[Dict[str, Any]]:
+def list_logs(limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
     # Prefer Supabase if configured
     if _sb:
         try:
-            res = _sb.table("audit_logs").select("*")\
-                .order("created_at", desc=True).limit(limit).execute()
+            start = int(max(0, offset))
+            end = int(max(start, start + int(max(1, limit)) - 1))
+            res = (
+                _sb.table("audit_logs")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(start, end)
+                .execute()
+            )
             out: List[Dict[str, Any]] = []
             if hasattr(res, "data"):
                 for row in res.data:
@@ -105,8 +112,12 @@ def list_logs(limit: int = 200) -> List[Dict[str, Any]]:
             return out
         except Exception:
             pass
+    # Local JSON fallback (newest first), apply offset window
     store = _ensure_store()
-    logs = store.get("logs", [])
-    return logs[-limit:][::-1]
+    logs = list(store.get("logs", []))
+    newest_first = logs[::-1]
+    start = int(max(0, offset))
+    end = start + int(max(1, limit))
+    return newest_first[start:end]
 
 

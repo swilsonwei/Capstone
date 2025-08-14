@@ -67,10 +67,15 @@
       /* Status mini-cards */
       .stats-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
       @media (min-width: 720px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
-      .stat-card { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 12px; box-shadow: var(--shadow-sm); }
-      .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-      .stat-card .value { font-size: 20px; font-weight: 700; color: var(--text); }
+      .stat-card { border: 1px solid var(--border); background: var(--surface); border-radius: 14px; padding: 14px; box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
+      .stat-card::before { content: ""; position: absolute; inset: 0; background: rgba(37,99,235,.06); opacity: .7; pointer-events:none; }
+      .stat-card .inner { position: relative; }
+      .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; letter-spacing: .2px; }
+      .stat-card .value { font-size: 22px; font-weight: 800; color: var(--text); }
       .stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+      .stat-quoted { border-left: 4px solid var(--accent); }
+      .stat-sent { border-left: 4px solid var(--accent-600); }
+      .stat-received { border-left: 4px solid var(--accent-700); }
     </style>
   </head>
   <body>
@@ -96,24 +101,27 @@
           <h2>Orders Dashboard</h2>
           <div class="row">Total Order Cost: <strong id="totCost">$0.00</strong></div>
           <div class="row">Open Orders: <strong id="openCnt">0</strong></div>
-          <div class="row"><a href="/orders">Go to Orders →</a></div>
           <div class="stats-grid">
-            <div class="stat-card">
+            <div class="stat-card stat-quoted"><div class="inner">
               <div class="label">Quoted</div>
               <div class="value" id="quotedCnt">0</div>
-              <div class="sub">Total: <span id="quotedSum">$0.00</span></div>
+              <div class="sub">Total: <span id="quotedSum">$0</span></div>
             </div>
-            <div class="stat-card">
+            </div>
+            <div class="stat-card stat-sent"><div class="inner">
               <div class="label">Sent</div>
               <div class="value" id="sentCnt">0</div>
-              <div class="sub">Total: <span id="sentSum">$0.00</span></div>
+              <div class="sub">Total: <span id="sentSum">$0</span></div>
             </div>
-            <div class="stat-card">
+            </div>
+            <div class="stat-card stat-received"><div class="inner">
               <div class="label">Received</div>
               <div class="value" id="receivedCnt">0</div>
-              <div class="sub">Total: <span id="receivedSum">$0.00</span></div>
+              <div class="sub">Total: <span id="receivedSum">$0</span></div>
+            </div>
             </div>
           </div>
+          <div class="row" style="margin-top:8px"><a href="/orders">Go to Orders →</a></div>
         </div>
         <div class="card sticky">
           <h2>Run Agent</h2>
@@ -139,6 +147,7 @@
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
       const chatEl = document.getElementById('chat');
+      let history = [];
       function showToast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; toasts.appendChild(t); setTimeout(()=>t.remove(), 2400); }
       themeBtn.onclick = ()=>{ const d=document.documentElement; d.setAttribute('data-theme', d.getAttribute('data-theme')==='dark'?'light':'dark'); showToast('Theme updated'); };
       function safeParseJSON(str){
@@ -169,17 +178,19 @@
         return JSON.stringify(data, null, 2);
       }
       runBtn.addEventListener('click', async () => {
-        chatEl.innerHTML='';
         const user=document.createElement('div'); user.className='bubble user'; user.textContent=promptEl.value; chatEl.appendChild(user);
+        history.push({ role: 'user', content: promptEl.value });
         const bot=document.createElement('div'); bot.className='bubble bot'; bot.innerHTML='<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptEl.value })
+            body: JSON.stringify({ prompt: promptEl.value, history })
           });
           const data = await res.json();
-          bot.textContent = toHumanReadable(data);
+          const msg = toHumanReadable(data);
+          bot.textContent = msg;
+          history.push({ role: 'assistant', content: msg });
           showToast('Agent completed');
         } catch (e) {
           bot.textContent = 'Error: ' + e;
@@ -204,11 +215,11 @@
             agg[st].s += Number(o.subtotal||0);
           }
           document.getElementById('quotedCnt').textContent = agg.Quoted.c;
-          document.getElementById('quotedSum').textContent = `$${agg.Quoted.s.toFixed(2)}`;
+          document.getElementById('quotedSum').textContent = `$${Number(agg.Quoted.s||0).toLocaleString('en-US', {maximumFractionDigits:0})}`;
           document.getElementById('sentCnt').textContent = agg.Sent.c;
-          document.getElementById('sentSum').textContent = `$${agg.Sent.s.toFixed(2)}`;
+          document.getElementById('sentSum').textContent = `$${Number(agg.Sent.s||0).toLocaleString('en-US', {maximumFractionDigits:0})}`;
           document.getElementById('receivedCnt').textContent = agg.Received.c;
-          document.getElementById('receivedSum').textContent = `$${agg.Received.s.toFixed(2)}`;
+          document.getElementById('receivedSum').textContent = `$${Number(agg.Received.s||0).toLocaleString('en-US', {maximumFractionDigits:0})}`;
         } catch {}
       }
       loadStats();

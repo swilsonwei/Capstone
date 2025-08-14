@@ -145,18 +145,23 @@
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
       const resultEl = document.getElementById('result');
+      let history = [];
       runBtn.addEventListener('click', async () => {
-        resultEl.textContent = 'Running...';
+        const user = `You: ${promptEl.value}\n`;
+        resultEl.textContent += user;
+        history.push({ role: 'user', content: promptEl.value });
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptEl.value })
+            body: JSON.stringify({ prompt: promptEl.value, history })
           });
           const data = await res.json();
-          resultEl.textContent = toHumanReadable(data);
+          const msg = toHumanReadable(data);
+          resultEl.textContent += `Assistant: ${msg}\n`;
+          history.push({ role: 'assistant', content: msg });
         } catch (e) {
-          resultEl.textContent = 'Error: ' + e;
+          resultEl.textContent += 'Error: ' + e + '\n';
         }
       });
     </script>

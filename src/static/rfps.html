@@ -32,9 +32,11 @@
       input[type="file"]::file-selector-button { border:none; background:var(--accent); color:#fff; border-radius:6px; padding:8px 12px; margin-right:12px; cursor:pointer; }
       input[type="file"]::-webkit-file-upload-button { border:none; background:var(--accent); color:#fff; border-radius:6px; padding:8px 12px; margin-right:12px; cursor:pointer; }
       button { appearance:none; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:8px; padding:10px 14px; font-weight:600; cursor:pointer; }
-      pre { 
-        background:#fafafa; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12px; line-height:1.45; max-height:280px; overflow:auto; color:var(--prompt-text); font-weight: 600;
+      pre {
+        background:#fafafa; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12px; line-height:1.45; max-height:280px; overflow:auto; color:var(--prompt-text); font-weight: 400; font-family: inherit;
       }
+      .ingest-table, .ingest-table th, .ingest-table td { background: #ffffff !important; }
+      .ingest-table tbody tr:nth-child(even) { background: #ffffff !important; }
       table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
       th, td { border:1px solid var(--border); padding:8px 10px; }
       thead th { background:var(--table-header); text-align:left; }
@@ -137,6 +139,7 @@
           ingestResultEl.textContent = JSON.stringify(data, null, 2);
           if (data && Array.isArray(data.items) && data.items.length) {
             const tbl = document.createElement('table');
+            tbl.className = 'ingest-table';
             const thead = document.createElement('thead');
             thead.innerHTML = '<tr><th>Item</th><th style="text-align:right">Quantity</th><th style="text-align:right">Unit Cost</th><th style="text-align:right">Line Total</th></tr>';
             tbl.appendChild(thead);

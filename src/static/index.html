@@ -124,11 +124,15 @@
         max-height: 280px;
         overflow: auto;
         width: 100%;
+        font-family: inherit;
       }
       table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
       th, td { border: 1px solid var(--border); padding: 8px 10px; }
       thead th { background: var(--table-header); text-align: left; }
       tbody tr:nth-child(even) { background: #fcfcfd; }
+      /* Force ingest tables to render white */
+      .ingest-table, .ingest-table th, .ingest-table td { background: #ffffff !important; }
+      .ingest-table tbody tr:nth-child(even) { background: #ffffff !important; }
 
       /* Dropzone */
       .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); transition: border-color .15s ease, background .15s ease; }
@@ -225,6 +229,7 @@
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
       const chatEl = document.getElementById('chat');
+      let history = [];
       const uploadForm = document.getElementById('uploadForm');
       const uploadBtn = document.getElementById('uploadBtn');
       // Ensure clicking the Upload button opens the picker if no file is chosen yet
@@ -294,18 +299,21 @@
       }
 
       runBtn.addEventListener('click', async () => {
-        // Chat bubbles
-        chatEl.innerHTML = '';
+        // Append user message above the prompt (persisting panel)
         const user = document.createElement('div'); user.className='bubble user'; user.textContent = promptEl.value; chatEl.appendChild(user);
+        // Track in session history
+        history.push({ role: 'user', content: promptEl.value });
         const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptEl.value })
+            body: JSON.stringify({ prompt: promptEl.value, history })
           });
           const data = await res.json();
-          bot.textContent = toHumanReadable(data);
+          const msg = toHumanReadable(data);
+          bot.textContent = msg;
+          history.push({ role: 'assistant', content: msg });
           showToast('Agent completed');
         } catch (e) {
           bot.textContent = 'Error: ' + e;
@@ -339,6 +347,7 @@
           }
           if (data && Array.isArray(data.items) && data.items.length) {
             const tbl = document.createElement('table');
+            tbl.className = 'ingest-table';
             tbl.border = '1';
             tbl.cellPadding = '6';
             const thead = document.createElement('thead');

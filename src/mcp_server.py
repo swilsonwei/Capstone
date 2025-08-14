@@ -161,6 +161,7 @@ async def sow_form():
 
 class AgentRunRequest(BaseModel):
     prompt: str = Field(..., description="Prompt to run through the MCP agent")
+    history: list | None = Field(default=None, description="Optional conversation history: [{role, content}]")
 
 
 @app.post("/agent/run")
@@ -181,7 +182,18 @@ async def agent_run(req: AgentRunRequest):
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
             '- Respond with a concise JSON summary, e.g.: {updated_ids:[...], created_id:"", actions:["listed","updated"], notes:""}.\n'
         )
-        combined_prompt = f"{TOOL_GUIDE}\n\nUser: {req.prompt}"
+        # Build conversational context from history
+        convo = []
+        if req.history:
+            for msg in req.history:
+                role = str(msg.get("role", "")).strip().lower()
+                content = str(msg.get("content", ""))
+                if role == "assistant":
+                    convo.append(f"Assistant: {content}")
+                else:
+                    convo.append(f"User: {content}")
+        convo.append(f"User: {req.prompt}")
+        combined_prompt = f"{TOOL_GUIDE}\n\n" + "\n".join(convo)
 
         # Set prompt context for downstream tool calls
         prompt_token = AGENT_PROMPT.set(req.prompt)
@@ -531,8 +543,8 @@ async def orders_pdf(order_id: str):
 
 
 @app.get("/logs/data")
-async def logs_data(limit: int = 200):
-    return {"logs": list_logs(limit=limit)}
+async def logs_data(limit: int = 20, offset: int = 0):
+    return {"logs": list_logs(limit=limit, offset=offset)}
 
 
 class LogEmit(BaseModel):

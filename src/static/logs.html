@@ -65,28 +65,43 @@
       </div>
     </div>
     <script>
-      async function loadLogs(){
-        const res = await fetch('/logs/data');
-        const data = await res.json();
-        const tbody = document.querySelector('#logTbl tbody');
-        tbody.innerHTML = '';
-        for(const lg of (data.logs||[])){
-          const tr = document.createElement('tr');
-          const createdAt = lg.created_at || lg.time || '';
-          const detailsObj = lg.details ? lg.details : Object.fromEntries(Object.entries(lg).filter(([k]) => !['id','time','created_at','order_id','type','prompt'].includes(k)));
-          tr.innerHTML = `
-            <td>${lg.order_id||''}</td>
-            <td>${lg.type||''}</td>
-            <td>${createdAt}</td>
-            <td>${lg.prompt ? String(lg.prompt).slice(0,200) : ''}</td>
-            <td><pre>${JSON.stringify(detailsObj, null, 2)}</pre></td>
-            <td>${lg.id||''}</td>
-          `;
-          tbody.appendChild(tr);
-        }
+      let logOffset = 0;
+      const PAGE = 20;
+      let loading = false;
+      async function appendLogs(){
+        if (loading) return; loading = true;
+        try {
+          const res = await fetch(`/logs/data?limit=${PAGE}&offset=${logOffset}`);
+          const data = await res.json();
+          const tbody = document.querySelector('#logTbl tbody');
+          const rows = data.logs || [];
+          for(const lg of rows){
+            const tr = document.createElement('tr');
+            const createdAt = lg.created_at || lg.time || '';
+            const detailsObj = lg.details ? lg.details : Object.fromEntries(Object.entries(lg).filter(([k]) => !['id','time','created_at','order_id','type','prompt'].includes(k)));
+            tr.innerHTML = `
+              <td>${lg.order_id||''}</td>
+              <td>${lg.type||''}</td>
+              <td>${createdAt}</td>
+              <td>${lg.prompt ? String(lg.prompt).slice(0,200) : ''}</td>
+              <td><pre>${JSON.stringify(detailsObj, null, 2)}</pre></td>
+              <td>${lg.id||''}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+          logOffset += rows.length;
+        } catch {}
+        loading = false;
       }
-      loadLogs();
-      document.getElementById('refresh').onclick = loadLogs;
+      // Initial load
+      appendLogs();
+      document.getElementById('refresh').onclick = () => { logOffset = 0; document.querySelector('#logTbl tbody').innerHTML=''; appendLogs(); };
+      // Infinite scroll: load more when near bottom
+      window.addEventListener('scroll', () => {
+        if ((window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 200)) {
+          appendLogs();
+        }
+      });
     </script>
   </body>
   </html>
