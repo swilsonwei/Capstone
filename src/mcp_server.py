@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from src.order_store import create_order, list_orders, update_status, get_order, update_items
 from src.audit_log import append_log, list_logs
 from src.mcp_client import main as mcp_client_run
+import re
 
 try:
     from docx import Document
@@ -183,7 +184,36 @@ async def agent_run(req: AgentRunRequest):
             append_log({"type": "agent_run_start", "prompt": req.prompt})
             async for step in agent.stream(combined_prompt):
                 # Serialize any step/event payload as text for the audit trail
-                append_log({"type": "agent_step", "prompt": req.prompt, "event": str(step)})
+                s = str(step)
+                append_log({"type": "agent_step", "prompt": req.prompt, "event": s})
+                # Heuristic extraction for tool call/result for richer logs
+                m_call = re.search(r"Tool call:\s*([^\s]+)", s)
+                if m_call:
+                    tool_name = m_call.group(1)
+                    m_in = re.search(r"with input:\s*(\{[\s\S]*\})", s)
+                    input_text = m_in.group(1) if m_in else s
+                    append_log({
+                        "type": "agent_tool_call",
+                        "prompt": req.prompt,
+                        "tool_name": tool_name,
+                        "tokens_input": int(max(1, len(input_text)//4)),
+                        "event": input_text,
+                    })
+                m_res = re.search(r"Tool result:\s*(\{[\s\S]*\}|.+)$", s)
+                if m_res:
+                    result_text = m_res.group(1)
+                    # Attempt to find prior tool name in same step string
+                    tool_name = None
+                    m_prev = re.search(r"Tool call:\s*([^\s]+)", s)
+                    if m_prev:
+                        tool_name = m_prev.group(1)
+                    append_log({
+                        "type": "agent_tool_result",
+                        "prompt": req.prompt,
+                        "tool_name": tool_name,
+                        "tokens_output": int(max(1, len(result_text)//4)),
+                        "event": result_text,
+                    })
         except Exception as stream_err:
             # Streaming not supported or failed; record and continue to final run
             append_log({"type": "agent_stream_unavailable", "prompt": req.prompt, "error": str(stream_err)})
@@ -192,6 +222,7 @@ async def agent_run(req: AgentRunRequest):
         append_log({
             "type": "agent_run",
             "prompt": req.prompt,
+            "tokens_output": int(max(1, len(str(result))//4)),
             "result": result,
         })
         return {"result": result}

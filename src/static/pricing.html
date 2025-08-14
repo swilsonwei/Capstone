@@ -4,21 +4,38 @@
     <meta charset="utf-8" />
     <title>Pricing</title>
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f7fb; color:#0f172a; margin:0; }
+      * { box-sizing: border-box; }
+      :root { --bg:#f6f7fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --accent-600:#1d4ed8; --accent-700:#1e40af; --table-header:#f1f5f9; --shadow-sm:0 1px 2px rgba(16,24,40,.06); --shadow-md:0 6px 14px rgba(16,24,40,.08) }
+      [data-theme="dark"] { --bg:#0b1220; --surface:#0f172a; --text:#e5e7eb; --muted:#97a3b6; --border:#1f2937; --accent:#22d3ee; --accent-600:#06b6d4; --accent-700:#0891b2; --table-header:#0b1220 }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); margin:0; }
+      .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+      .topbar .inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+      .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px }
+      .brand .dot { width:10px; height:10px; border-radius:999px; background:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,.15) }
+      .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; box-shadow:var(--shadow-sm) }
+      .icon-btn:hover { background:rgba(0,0,0,.03) }
       .container{ max-width: 1120px; margin:0 auto; padding:24px; }
       .breadcrumbs { margin-bottom: 12px; }
       a { color:#2563eb; text-decoration:none; }
-      .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; box-shadow: var(--shadow-md) }
       table { width:100%; border-collapse:collapse; font-size:14px; }
-      th, td { border:1px solid #e5e7eb; padding:8px 10px; }
-      thead th { background:#f1f5f9; text-align:left; }
-      input[type="text"], input[type="number"] { width:100%; padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; }
+      th, td { border:1px solid var(--border); padding:8px 10px; }
+      thead th { background:var(--table-header); text-align:left; }
+      input[type="text"], input[type="number"] { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px; }
       .actions { display:flex; gap:10px; margin-top:12px; }
-      button { padding:10px 14px; border-radius:8px; border:1px solid #2563eb; background:#2563eb; color:#fff; cursor:pointer; }
-      button.secondary { background:#fff; color:#2563eb; }
+      button { padding:10px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
+      button.secondary { background:#fff; color:var(--accent); }
     </style>
   </head>
   <body>
+    <div class="topbar">
+      <div class="inner">
+        <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeBtn" title="Toggle theme">🌓</button>
+        </div>
+      </div>
+    </div>
     <div class="container">
       <div class="breadcrumbs">
         <a href="/">← Back to CPQ</a> &nbsp;|&nbsp; <a href="/orders">Orders</a>

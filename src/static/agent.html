@@ -4,53 +4,145 @@
     <meta charset="utf-8" />
     <title>Dashboard & Agent</title>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-      textarea { width: 100%; height: 120px; }
-      pre { background: #f7f7f7; padding: 12px; overflow: auto; }
-      .row { margin-bottom: 12px; }
-      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-      .card { border: 1px solid #eee; border-radius: 8px; padding: 16px; }
-      .tabs { display:flex; gap:10px; border-bottom:1px solid #e5e7eb; margin-bottom:20px; }
-      .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
-      .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
+      * { box-sizing: border-box; }
+      :root {
+        --bg: #f6f7fb;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #2563eb;
+        --accent-600: #1d4ed8;
+        --accent-700: #1e40af;
+        --table-header: #f1f5f9;
+        --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
+        --shadow-md: 0 6px 14px rgba(16,24,40,.08);
+      }
+      [data-theme="dark"] {
+        --bg: #0b1220; --surface: #0f172a; --text: #e5e7eb; --muted: #97a3b6; --border: #1f2937;
+        --accent: #22d3ee; --accent-600: #06b6d4; --accent-700: #0891b2; --table-header: #0b1220;
+      }
+      html, body { height: 100%; }
+      body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"; }
+      .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+      .topbar .inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+      .brand .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+      .top-actions { display: flex; align-items: center; gap: 10px; }
+      .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; box-shadow: var(--shadow-sm); }
+      .icon-btn:hover { background: rgba(0,0,0,.03); }
+      .icon-btn:active { transform: translateY(1px); }
+      .container { max-width: 1120px; margin: 0 auto; padding: 24px; }
+      .tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+      .tab { padding: 10px 12px; border: 1px solid transparent; border-top-left-radius: 8px; border-top-right-radius: 8px; color: var(--muted); text-decoration: none; }
+      .tab.active { color: var(--text); background: var(--surface); border-color: var(--border) var(--border) #fff; }
+      .two-col { display: grid; grid-template-columns: 1fr; gap: 24px; }
+      @media (min-width: 960px) { .two-col { grid-template-columns: 1.4fr .8fr; } }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: var(--shadow-md); }
       .sticky { position: sticky; top: 16px; }
+      .row { margin-bottom: 14px; }
+      label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+      textarea { width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--text); }
+      button { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+      button:hover { background: var(--accent-600); border-color: var(--accent-600); }
+      button:active { background: var(--accent-700); border-color: var(--accent-700); }
+      pre { background: #fafafa; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 12px; line-height: 1.45; max-height: 280px; overflow: auto; width: 100%; }
+      .footer { margin-top: 28px; padding: 18px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
+      .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
+      .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
+      .chat { display: flex; flex-direction: column; gap: 8px; }
+      .bubble { max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); }
+      .bubble.user { margin-left: auto; background: #e0e7ff; color: #1e1b4b; }
+      .bubble.bot { margin-right: auto; background: #f1f5f9; }
+      .thinking { width: 36px; height: 12px; display: inline-flex; align-items: center; justify-content: space-between; }
+      .thinking span { width: 6px; height: 6px; background: var(--muted); border-radius: 999px; display: inline-block; animation: bounce 1.2s infinite ease-in-out; }
+      .thinking span:nth-child(2){ animation-delay: .15s; }
+      .thinking span:nth-child(3){ animation-delay: .3s; }
+      @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .5 } 40% { transform: translateY(-6px); opacity: 1 } }
     </style>
   </head>
   <body>
-    <nav class="tabs">
-      <a class="tab active" href="/agent">Home</a>
-      <a class="tab" href="/">CPQ</a>
-      <a class="tab" href="/rfps">RFP's</a>
-      <a class="tab" href="/orders">Orders</a>
-      <a class="tab" href="/logs">Logs</a>
-    </nav>
-    <h1>Dashboard & Agent</h1>
-    <div class="two-col">
-      <div class="card sticky">
-        <h2>Run Agent</h2>
-        <div class="row">
-          <label for="prompt">Prompt</label>
-          <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+    <div class="topbar">
+      <div class="inner">
+        <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeBtn" title="Toggle theme">🌓</button>
+          <button class="icon-btn" id="helpBtn" title="Help">❓</button>
         </div>
-        <div class="row">
-          <button id="run">Run Agent</button>
-        </div>
-        <h3>Result</h3>
-        <pre id="result">(no result yet)</pre>
-      </div>
-      <div class="card">
-        <h2>Orders Dashboard</h2>
-        <div class="row">Total Order Cost: <strong id="totCost">$0.00</strong></div>
-        <div class="row">Open Orders: <strong id="openCnt">0</strong></div>
-        <div class="row"><a href="/orders">Go to Orders →</a></div>
       </div>
     </div>
+    <div class="container">
+      <nav class="tabs">
+        <a class="tab active" href="/agent">Home</a>
+        <a class="tab" href="/">CPQ</a>
+        <a class="tab" href="/rfps">RFP's</a>
+        <a class="tab" href="/orders">Orders</a>
+        <a class="tab" href="/logs">Logs</a>
+      </nav>
+      <div class="two-col">
+        <div class="card">
+          <h2>Orders Dashboard</h2>
+          <div class="row">Total Order Cost: <strong id="totCost">$0.00</strong></div>
+          <div class="row">Open Orders: <strong id="openCnt">0</strong></div>
+          <div class="row"><a href="/orders">Go to Orders →</a></div>
+        </div>
+        <div class="card sticky">
+          <h2>Run Agent</h2>
+          <div class="row">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+          </div>
+          <div class="row">
+            <button id="run">Run Agent</button>
+          </div>
+          <h3>Result</h3>
+          <div id="chat" class="chat">
+            <div class="bubble bot">(no result yet)</div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">© 2025 CPQ Platform</div>
+    </div>
+    <div class="toasts" id="toasts"></div>
     <script>
+      const themeBtn = document.getElementById('themeBtn');
+      const toasts = document.getElementById('toasts');
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
-      const resultEl = document.getElementById('result');
+      const chatEl = document.getElementById('chat');
+      function showToast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; toasts.appendChild(t); setTimeout(()=>t.remove(), 2400); }
+      themeBtn.onclick = ()=>{ const d=document.documentElement; d.setAttribute('data-theme', d.getAttribute('data-theme')==='dark'?'light':'dark'); showToast('Theme updated'); };
+      function safeParseJSON(str){
+        if (typeof str !== 'string') return null;
+        try { return JSON.parse(str); } catch { return null; }
+      }
+      function toHumanReadable(data){
+        let payload = data;
+        if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
+          const inner = typeof payload.result === 'string' ? (safeParseJSON(payload.result) || payload.result) : payload.result;
+          payload = inner;
+        }
+        if (typeof payload === 'string') return payload;
+        if (payload && typeof payload === 'object'){
+          const lines = [];
+          const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
+          const createdId = payload.created_id || (payload.order && payload.order.id);
+          if (updated.length) lines.push(`Updated ${updated.length} order(s): ${updated.join(', ')}.`);
+          if (createdId) lines.push(`Created order ${createdId}.`);
+          if (Array.isArray(payload.orders) && payload.orders.length){
+            const list = payload.orders.map(o=>`${o.id} ($${Number(o.subtotal||0).toFixed(2)}; ${o.status||'n/a'})`).join('; ');
+            lines.push(`Selected orders: ${list}.`);
+          }
+          if (payload.notes) lines.push(String(payload.notes).endsWith('.') ? payload.notes : payload.notes + '.');
+          if (payload.message && !lines.length) lines.push(String(payload.message));
+          return lines.length ? lines.join(' ') : JSON.stringify(data, null, 2);
+        }
+        return JSON.stringify(data, null, 2);
+      }
       runBtn.addEventListener('click', async () => {
-        resultEl.textContent = 'Running...';
+        chatEl.innerHTML='';
+        const user=document.createElement('div'); user.className='bubble user'; user.textContent=promptEl.value; chatEl.appendChild(user);
+        const bot=document.createElement('div'); bot.className='bubble bot'; bot.innerHTML='<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
@@ -58,9 +150,10 @@
             body: JSON.stringify({ prompt: promptEl.value })
           });
           const data = await res.json();
-          resultEl.textContent = JSON.stringify(data, null, 2);
+          bot.textContent = toHumanReadable(data);
+          showToast('Agent completed');
         } catch (e) {
-          resultEl.textContent = 'Error: ' + e;
+          bot.textContent = 'Error: ' + e;
         }
       });
 
@@ -75,6 +168,6 @@
       loadStats();
     </script>
   </body>
-</html>
+ </html>
 
 

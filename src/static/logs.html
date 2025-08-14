@@ -4,19 +4,36 @@
     <meta charset="utf-8" />
     <title>Logs</title>
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f6f7fb; color:#0f172a; margin:0; }
+      * { box-sizing: border-box; }
+      :root { --bg:#f6f7fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --accent-600:#1d4ed8; --accent-700:#1e40af; --table-header:#f1f5f9; --shadow-sm:0 1px 2px rgba(16,24,40,.06); --shadow-md:0 6px 14px rgba(16,24,40,.08) }
+      [data-theme="dark"] { --bg:#0b1220; --surface:#0f172a; --text:#e5e7eb; --muted:#97a3b6; --border:#1f2937; --accent:#22d3ee; --accent-600:#06b6d4; --accent-700:#0891b2; --table-header:#0b1220 }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); margin:0; }
+      .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+      .topbar .inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+      .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px }
+      .brand .dot { width:10px; height:10px; border-radius:999px; background:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,.15) }
+      .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; box-shadow:var(--shadow-sm) }
+      .icon-btn:hover { background:rgba(0,0,0,.03) }
       .container{ max-width: 1120px; margin:0 auto; padding:24px; }
-      .tabs { display:flex; gap:10px; border-bottom:1px solid #e5e7eb; margin-bottom:20px; }
-      .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
-      .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
-      .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; }
+      .tabs { display:flex; gap:10px; border-bottom:1px solid var(--border); margin-bottom:20px; }
+      .tab { padding:10px 12px; color:var(--muted); text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
+      .tab.active { color:var(--text); background:var(--surface); border-color:var(--border) var(--border) #fff; }
+      .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; box-shadow: var(--shadow-md) }
       table { width:100%; border-collapse:collapse; font-size:13px; }
-      th, td { border:1px solid #e5e7eb; padding:8px 10px; vertical-align: top; }
-      thead th { background:#f1f5f9; text-align:left; }
+      th, td { border:1px solid var(--border); padding:8px 10px; vertical-align: top; }
+      thead th { background:var(--table-header); text-align:left; }
       pre { margin:0; white-space:pre-wrap; word-break:break-word; }
     </style>
   </head>
   <body>
+    <div class="topbar">
+      <div class="inner">
+        <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeBtn" title="Toggle theme">🌓</button>
+        </div>
+      </div>
+    </div>
     <div class="container">
       <nav class="tabs">
         <a class="tab" href="/agent">Home</a>
@@ -33,10 +50,12 @@
         <table id="logTbl">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Time</th>
-              <th>Type</th>
-              <th>Details</th>
+              <th>order_id</th>
+              <th>type</th>
+              <th>created_at</th>
+              <th>prompt</th>
+              <th>details</th>
+              <th>id</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -51,13 +70,15 @@
         tbody.innerHTML = '';
         for(const lg of (data.logs||[])){
           const tr = document.createElement('tr');
-          const details = Object.assign({}, lg);
-          delete details.id; delete details.time; delete details.type;
+          const createdAt = lg.created_at || lg.time || '';
+          const detailsObj = lg.details ? lg.details : Object.fromEntries(Object.entries(lg).filter(([k]) => !['id','time','created_at','order_id','type','prompt'].includes(k)));
           tr.innerHTML = `
-            <td>${lg.id||''}</td>
-            <td>${lg.time||''}</td>
+            <td>${lg.order_id||''}</td>
             <td>${lg.type||''}</td>
-            <td><pre>${JSON.stringify(details, null, 2)}</pre></td>
+            <td>${createdAt}</td>
+            <td>${lg.prompt ? String(lg.prompt).slice(0,200) : ''}</td>
+            <td><pre>${JSON.stringify(detailsObj, null, 2)}</pre></td>
+            <td>${lg.id||''}</td>
           `;
           tbody.appendChild(tr);
         }
