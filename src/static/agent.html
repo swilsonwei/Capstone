@@ -44,7 +44,7 @@
       .row { margin-bottom: 14px; }
       label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
       textarea {
-        width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--prompt-text); font-weight: 400;
+        width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 16px; color: var(--prompt-text); font-weight: 400; font-family: inherit;
       }
       button { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
       button:hover { background: var(--accent-600); border-color: var(--accent-600); }
@@ -53,7 +53,8 @@
       .footer { margin-top: 28px; padding: 18px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
-      .chat { display: flex; flex-direction: column; gap: 8px; }
+      .chat { display: flex; flex-direction: column; gap: 8px; font-size: 16px; color: var(--prompt-text); font-weight: 400; font-family: inherit; }
+      .chat-scroll { max-height: 340px; overflow: auto; }
       .bubble {
         max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); font-weight: 400;
       }
@@ -125,16 +126,16 @@
         </div>
         <div class="card sticky">
           <h2>Run Agent</h2>
-          <div class="row">
+          <h3>Result</h3>
+          <div id="chat" class="chat chat-scroll" style="color:var(--prompt-text)">
+            <div class="bubble bot" style="color:var(--prompt-text)">(no result yet)</div>
+          </div>
+          <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
             <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
           </div>
           <div class="row">
             <button id="run">Run Agent</button>
-          </div>
-          <h3>Result</h3>
-          <div id="chat" class="chat" style="color:var(--prompt-text)">
-            <div class="bubble bot" style="color:var(--prompt-text)">(no result yet)</div>
           </div>
         </div>
       </div>
@@ -201,7 +202,7 @@
         try {
           const res = await fetch('/orders/stats');
           const data = await res.json();
-          document.getElementById('totCost').textContent = `$${Number(data.total_cost||0).toFixed(2)}`;
+          document.getElementById('totCost').textContent = `$${Number(data.total_cost||0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
           document.getElementById('openCnt').textContent = Number(data.open_count||0);
           // Fetch full orders to compute per-status aggregates
           const res2 = await fetch('/orders/data');

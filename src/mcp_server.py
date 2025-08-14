@@ -551,12 +551,18 @@ class LogEmit(BaseModel):
     type: str
     order_id: str | None = None
     details: dict | None = None
+    prompt: str | None = None
 
 
 @app.post("/logs/emit")
 async def logs_emit(body: LogEmit):
     try:
-        rec = append_log({"type": body.type, "order_id": body.order_id, "details": body.details})
+        rec = append_log({
+            "type": body.type,
+            "order_id": body.order_id,
+            "details": body.details,
+            "prompt": body.prompt,
+        })
         return {"ok": True, "log": rec}
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})

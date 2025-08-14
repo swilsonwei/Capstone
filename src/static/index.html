@@ -71,8 +71,9 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         padding: 10px 12px;
-        font-size: 14px;
+        font-size: 16px;
         color: var(--prompt-text);
+        font-family: inherit;
       }
       /* Make the file input align and size like other controls */
       input[type="file"] { height: 40px; padding: 6px 10px; }
@@ -130,9 +131,9 @@
       th, td { border: 1px solid var(--border); padding: 8px 10px; }
       thead th { background: var(--table-header); text-align: left; }
       tbody tr:nth-child(even) { background: #fcfcfd; }
-      /* Force ingest tables to render white */
-      .ingest-table, .ingest-table th, .ingest-table td { background: #ffffff !important; }
-      .ingest-table tbody tr:nth-child(even) { background: #ffffff !important; }
+      /* Ingest tables: very light grey background */
+      .ingest-table, .ingest-table th, .ingest-table td { background: #f7f7f7 !important; }
+      .ingest-table tbody tr:nth-child(even) { background: #f7f7f7 !important; }
 
       /* Dropzone */
       .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); transition: border-color .15s ease, background .15s ease; }
@@ -150,6 +151,7 @@
 
       /* Chat bubbles for result */
       .chat { display: flex; flex-direction: column; gap: 8px; }
+      .chat-scroll { max-height: 340px; overflow: auto; }
       .bubble {
         max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); font-weight: 400;
       }
@@ -209,16 +211,16 @@
 
         <div class="card sticky">
           <h2>Run Agent</h2>
-          <div class="row">
+          <h3 style="margin-top:0">Result</h3>
+          <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit">
+            <div class="bubble bot">(no result yet)</div>
+          </div>
+          <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
             <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
           </div>
           <div class="row actions">
             <button id="run">Run Agent</button>
-          </div>
-          <h3 style="margin-top:14px">Result</h3>
-          <div id="chat" class="chat">
-            <div class="bubble bot">(no result yet)</div>
           </div>
         </div>
       </div>
