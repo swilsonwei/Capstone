@@ -692,6 +692,49 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
 
     return {"order": new_order}
 
+class CreateVariantRequest(BaseModel):
+    source_order_id: str = Field(..., description="Existing order id to clone from")
+    additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
+    status: str = Field(default="Quoted", description="Status for the new order (Quoted|Sent|Received)")
+
+
+@app.post("/orders/variant", operation_id="create_variant_order")
+async def create_variant_order(payload: CreateVariantRequest) -> Dict:
+    """Create a new order variant from an existing one, with added items and desired status.
+
+    This endpoint NEVER modifies the source order. It returns the newly created order id.
+    """
+    if payload.status not in ("Quoted", "Sent", "Received"):
+        return JSONResponse(status_code=400, content={"error": "invalid status"})
+    source = get_order(payload.source_order_id)
+    if not source:
+        return JSONResponse(status_code=404, content={"error": "source order not found"})
+
+    base_items = source.get("items", [])
+    add_items, _ = _normalize_items(payload.additions)
+    combined = base_items + add_items
+    normalized, subtotal = _normalize_items(combined)
+
+    source_name = source.get("source_file") or f"Variant of {payload.source_order_id}"
+    new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized)
+
+    append_log({
+        "type": "order_variant_created",
+        "order_id": new_order.get("id"),
+        "details": {
+            "source": payload.source_order_id,
+            "additions": payload.additions,
+            "status": payload.status,
+            "items_count": len(normalized),
+            "subtotal": subtotal,
+        },
+        "route": "/orders/variant",
+        "method": "POST",
+        "status": 200,
+    })
+
+    return {"order": new_order}
+
 # Initialize FastAPIMCP AFTER all routes are defined so every endpoint is exposed as a tool
 mcp_server = FastApiMCP(
     app,
