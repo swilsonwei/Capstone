@@ -175,7 +175,7 @@ async def agent_run(req: AgentRunRequest):
             "- Ensure idempotency: avoid duplicate submissions; each intended action should execute once.\n"
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
-            "- Respond with a concise JSON summary, e.g.: {updated_ids:[...], created_id:"", actions:["listed","updated"], notes:""}.\n"
+            '- Respond with a concise JSON summary, e.g.: {updated_ids:[...], created_id:"", actions:["listed","updated"], notes:""}.\n'
         )
         combined_prompt = f"{TOOL_GUIDE}\n\nUser: {req.prompt}"
 
