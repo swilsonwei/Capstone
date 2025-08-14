@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>Dashboard & Agent</title>
@@ -43,7 +43,9 @@
       .sticky { position: sticky; top: 16px; }
       .row { margin-bottom: 14px; }
       label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-      textarea { width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--prompt-text); }
+      textarea { 
+        width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--prompt-text); font-weight: 600;
+      }
       button { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
       button:hover { background: var(--accent-600); border-color: var(--accent-600); }
       button:active { background: var(--accent-700); border-color: var(--accent-700); }
@@ -52,7 +54,9 @@
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
       .chat { display: flex; flex-direction: column; gap: 8px; }
-      .bubble { max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); }
+      .bubble { 
+        max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); font-weight: 600;
+      }
       .bubble.user { margin-left: auto; background: #e0e7ff; color: #1e1b4b; }
       .bubble.bot { margin-right: auto; background: #f1f5f9; }
       .thinking { width: 36px; height: 12px; display: inline-flex; align-items: center; justify-content: space-between; }

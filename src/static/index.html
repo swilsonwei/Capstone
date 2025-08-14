@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>CPQ</title>
@@ -96,7 +96,9 @@
         margin-right: 12px;
         cursor: pointer;
       }
-      textarea { height: 140px; resize: vertical; }
+      textarea { 
+        width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--prompt-text); font-weight: 600;
+      }
       .row { margin-bottom: 14px; }
       .actions { display: flex; gap: 10px; }
       button {
@@ -144,7 +146,9 @@
 
       /* Chat bubbles for result */
       .chat { display: flex; flex-direction: column; gap: 8px; }
-      .bubble { max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); }
+      .bubble { 
+        max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); font-weight: 600;
+      }
       .bubble.user { margin-left: auto; background: #e0e7ff; color: #1e1b4b; }
       .bubble.bot { margin-right: auto; background: #f1f5f9; color: var(--prompt-text); }
       .thinking { width: 36px; height: 12px; display: inline-flex; align-items: center; justify-content: space-between; }

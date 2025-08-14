@@ -84,11 +84,15 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
     # Also upsert into Supabase if configured
     if _sb:
         try:
-            # Insert (not upsert) to avoid overwriting existing orders
-            row = {k: v for k, v in order.items() if k != "items"}
-            _sb.table("orders").insert(row).execute()
+            # Try inserting with items (JSONB column if present)
+            _sb.table("orders").insert(order).execute()
         except Exception:
-            pass
+            # Fallback: insert without items field if column doesn't exist
+            try:
+                row_no_items = {k: v for k, v in order.items() if k != "items"}
+                _sb.table("orders").insert(row_no_items).execute()
+            except Exception:
+                pass
     # Emit audit log (best-effort)
     try:
         from src.audit_log import append_log
@@ -188,7 +192,16 @@ def get_order(order_id: str) -> Dict[str, Any] | None:
         try:
             resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
             data = (resp.data or []) if hasattr(resp, "data") else []
-            return data[0] if data else None
+            row = dict(data[0]) if data else None
+            if row is None:
+                return None
+            # If Supabase row lacks items, enrich from local cache if present
+            if not row.get("items"):
+                for o in store.get("orders", []):
+                    if o.get("id") == order_id and o.get("items"):
+                        row["items"] = o.get("items")
+                        break
+            return row
         except Exception:
             return None
     return None
@@ -233,12 +246,21 @@ def update_items(order_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any] |
     # update Supabase aggregates
     if _sb:
         try:
+            # Attempt to persist items JSON if column exists
             _sb.table("orders").update({
+                "items": normalized,
                 "items_count": len(normalized),
                 "subtotal": float(subtotal)
             }).eq("id", order_id).execute()
         except Exception:
-            pass
+            # Fallback without items column
+            try:
+                _sb.table("orders").update({
+                    "items_count": len(normalized),
+                    "subtotal": float(subtotal)
+                }).eq("id", order_id).execute()
+            except Exception:
+                pass
     # Audit log
     try:
         from src.audit_log import append_log
