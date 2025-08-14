@@ -49,6 +49,7 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
     if _sb:
         try:
             # Map known keys to columns; pass extra context to details jsonb
+            # Only include columns that exist in your audit_logs table schema
             columns = {
                 "type": entry.get("type"),
                 "order_id": entry.get("order_id"),
@@ -58,12 +59,9 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
                 "status": entry.get("status"),
                 "prompt": entry.get("prompt"),
                 "tool_name": entry.get("tool_name"),
-                "model": entry.get("model"),
                 "tokens_input": entry.get("tokens_input"),
                 "tokens_output": entry.get("tokens_output"),
                 "event": entry.get("event"),
-                "error_code": entry.get("error_code"),
-                "error_message": entry.get("error"),
                 "details": entry.get("details"),
             }
             # Remove None keys to avoid null-overwrites
@@ -74,9 +72,12 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
                 entry["db_id"] = res.data[0].get("id")
                 entry["time"] = res.data[0].get("created_at")
             return entry
-        except Exception:
-            # Fall through to JSON store
-            pass
+        except Exception as e:
+            # Surface error in server logs and fall through to JSON store
+            try:
+                print(f"[audit_log] Supabase insert failed: {e}")
+            except Exception:
+                pass
 
     # JSON fallback (ephemeral)
     store = _ensure_store()

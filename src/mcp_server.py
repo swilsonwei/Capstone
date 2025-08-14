@@ -488,6 +488,21 @@ async def logs_data(limit: int = 200):
     return {"logs": list_logs(limit=limit)}
 
 
+class LogEmit(BaseModel):
+    type: str
+    order_id: str | None = None
+    details: dict | None = None
+
+
+@app.post("/logs/emit")
+async def logs_emit(body: LogEmit):
+    try:
+        rec = append_log({"type": body.type, "order_id": body.order_id, "details": body.details})
+        return {"ok": True, "log": rec}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
 class PricingUpdate(BaseModel):
     items: list
 
