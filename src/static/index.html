@@ -17,7 +17,7 @@
         --table-header: #f1f5f9;
         --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
         --shadow-md: 0 6px 14px rgba(16,24,40,.08);
-        --prompt-text: #374151; /* dark gray for prompt/result text */
+        --prompt-text: #000000; /* black for prompt/result text */
       }
       [data-theme="dark"] {
         --bg: #0b1220;
@@ -249,6 +249,12 @@
         toasts.appendChild(t);
         setTimeout(()=>{ t.remove(); }, 2400);
       }
+      // Auto-submit after file selection
+      fileEl.addEventListener('change', () => {
+        if (fileEl.files && fileEl.files.length) {
+          uploadForm.requestSubmit();
+        }
+      });
 
       function safeParseJSON(str){
         if (typeof str !== 'string') return null;
@@ -304,7 +310,10 @@
         try {
           const fd = new FormData();
           if (!fileEl.files.length) {
+            // Prompt user to pick a file if none selected yet
             ingestResultEl.textContent = 'Please select a file';
+            showToast('Select a .pdf or .docx to upload');
+            fileEl.click();
             return;
           }
           fd.append('file', fileEl.files[0]);

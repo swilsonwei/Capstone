@@ -570,7 +570,6 @@ async def pricing_save(order_id: str, body: PricingUpdate):
     updated = update_items(order_id, body.items or [])
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
-    append_log({"type": "pricing_save", "order_id": order_id, "items": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)})
     return {"ok": True, "order": updated}
 
 
@@ -601,15 +600,6 @@ async def orders_status(update: OrderStatusUpdate):
     updated = update_status(update.id, update.status)
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
-    # Audit trail entry on successful update
-    append_log({
-        "type": "order_status_updated",
-        "order_id": update.id,
-        "details": {"status": update.status},
-        "route": "/orders/status",
-        "method": "POST",
-        "status": 200,
-    })
     return updated
 
 

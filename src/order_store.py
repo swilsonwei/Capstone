@@ -147,7 +147,7 @@ def update_status(order_id: str, status: str) -> Dict[str, Any]:
                     }
                     store.setdefault("orders", []).append(target)
                 _save_store(store)
-                # Audit log
+                # Single-source audit log (data layer only)
                 try:
                     from src.audit_log import append_log
                     append_log({
@@ -168,7 +168,7 @@ def update_status(order_id: str, status: str) -> Dict[str, Any]:
         if o.get("id") == order_id:
             o["status"] = status
             _save_store(store)
-            # Audit log
+            # Single-source audit log (data layer only)
             try:
                 from src.audit_log import append_log
                 append_log({

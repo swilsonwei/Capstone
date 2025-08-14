@@ -5,7 +5,7 @@
     <title>RFPs</title>
     <style>
       * { box-sizing: border-box; }
-      :root { --bg:#f6f7fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --accent-600:#1d4ed8; --accent-700:#1e40af; --table-header:#f1f5f9; --shadow-sm:0 1px 2px rgba(16,24,40,.06); --shadow-md:0 6px 14px rgba(16,24,40,.08); --prompt-text:#374151 }
+      :root { --bg:#f6f7fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --accent-600:#1d4ed8; --accent-700:#1e40af; --table-header:#f1f5f9; --shadow-sm:0 1px 2px rgba(16,24,40,.06); --shadow-md:0 6px 14px rgba(16,24,40,.08); --prompt-text:#000000 }
       [data-theme="dark"] { --bg:#0b1220; --surface:#0f172a; --text:#e5e7eb; --muted:#97a3b6; --border:#1f2937; --accent:#22d3ee; --accent-600:#06b6d4; --accent-700:#0891b2; --table-header:#0b1220; --prompt-text:#cbd5e1 }
       body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); margin:0; }
       .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); }
@@ -37,6 +37,9 @@
       table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
       th, td { border:1px solid var(--border); padding:8px 10px; }
       thead th { background:var(--table-header); text-align:left; }
+      /* Match CPQ dropzone styles */
+      .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); transition: border-color .15s ease, background .15s ease; }
+      .dropzone.drag { border-color: var(--accent); background: rgba(37,99,235,.06); }
     </style>
   </head>
   <body>
@@ -62,7 +65,8 @@
           <form id="uploadForm">
           <div class="row">
             <label for="file">Select PDF or DOCX</label>
-            <input type="file" id="file" accept=".pdf,.docx" required />
+            <div id="dropzone" class="dropzone">Drag & drop file here, or click to browse</div>
+            <input style="display:none" type="file" id="file" accept=".pdf,.docx" required />
           </div>
           <div class="row">
             <button type="submit">Upload & Ingest</button>
@@ -93,16 +97,30 @@
       const ingestResultEl = document.getElementById('ingestResult');
       const tableWrap = document.getElementById('tableWrap');
       const openPdfBtn = document.getElementById('openPdf');
+      const dropzone = document.getElementById('dropzone');
+
+      // Allow clicking the dropzone to open the file picker
+      dropzone.addEventListener('click', ()=> fileEl.click());
+      // Drag & drop interactions
+      dropzone.addEventListener('dragover', (e)=>{ e.preventDefault(); dropzone.classList.add('drag'); });
+      dropzone.addEventListener('dragleave', ()=> dropzone.classList.remove('drag'));
+      dropzone.addEventListener('drop', (e)=>{
+        e.preventDefault(); dropzone.classList.remove('drag');
+        const f = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) { fileEl.files = e.dataTransfer.files; uploadForm.requestSubmit(); }
+      });
+
+      // Auto-submit when a file is picked from the picker
+      fileEl.addEventListener('change', ()=>{
+        if (fileEl.files && fileEl.files.length) uploadForm.requestSubmit();
+      });
 
       uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         ingestResultEl.textContent = 'Uploading...';
         try {
           const fd = new FormData();
-          if (!fileEl.files.length) {
-            ingestResultEl.textContent = 'Please select a file';
-            return;
-          }
+          if (!fileEl.files.length) { ingestResultEl.textContent = 'Please select a file'; fileEl.click(); return; }
           fd.append('file', fileEl.files[0]);
           const res = await fetch('/agent/upload', { method: 'POST', body: fd });
           const data = await res.json();
