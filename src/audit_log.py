@@ -53,7 +53,8 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
             columns = {
                 "type": entry.get("type"),
                 "order_id": entry.get("order_id"),
-                "user_id": entry.get("user_id"),
+                # Provide a default to satisfy NOT NULL constraint
+                "user_id": entry.get("user_id", "system"),
                 "route": entry.get("route"),
                 "method": entry.get("method"),
                 "status": entry.get("status"),
