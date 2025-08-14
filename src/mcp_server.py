@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi_mcp import FastApiMCP
 from typing import Dict, Optional
+from contextvars import ContextVar
 from datetime import datetime
 from pydantic import BaseModel, Field
 from src.milvus_connector import search_similar_documents, add_document, ensure_collection_exists
@@ -36,6 +37,9 @@ except Exception:
     canvas = None
 
 app = FastAPI()
+
+# Context variable to carry the active agent prompt across tool calls
+AGENT_PROMPT: ContextVar[str | None] = ContextVar("AGENT_PROMPT", default=None)
 
 class AddDocumentRequest(BaseModel):
     text: str = Field(..., description="Document text to add")
@@ -179,6 +183,9 @@ async def agent_run(req: AgentRunRequest):
         )
         combined_prompt = f"{TOOL_GUIDE}\n\nUser: {req.prompt}"
 
+        # Set prompt context for downstream tool calls
+        prompt_token = AGENT_PROMPT.set(req.prompt)
+
         # Try to capture intermediate reasoning/steps if streaming is available
         try:
             append_log({"type": "agent_run_start", "prompt": req.prompt})
@@ -229,6 +236,12 @@ async def agent_run(req: AgentRunRequest):
     except Exception as e:
         append_log({"type": "agent_run_error", "prompt": req.prompt, "error": str(e)})
         return JSONResponse(status_code=400, content={"error": str(e)})
+    finally:
+        try:
+            # Reset context to avoid leaking prompt across requests
+            AGENT_PROMPT.reset(prompt_token)
+        except Exception:
+            pass
 
 
 @app.get("/agent")
@@ -554,11 +567,46 @@ async def pricing_data(order_id: str):
     order = get_order(order_id)
     if not order:
         return JSONResponse(status_code=404, content={"error": "order not found"})
+    # Fallback: if items are missing but items_count suggests there should be items, try local cache
+    items = order.get("items", []) or []
+    try:
+        has_items_count = float(order.get("items_count", 0) or 0) > 0
+    except Exception:
+        has_items_count = False
+    if (not items) and has_items_count:
+        try:
+            data_path = Path(__file__).resolve().parents[1] / "data" / "orders.json"
+            if data_path.exists():
+                import json as _json
+                store = _json.loads(data_path.read_text(encoding="utf-8"))
+                for o in (store.get("orders", []) or []):
+                    if o.get("id") == order_id and o.get("items"):
+                        items = o.get("items")
+                        break
+            # Best-effort: persist back if items found
+            if items:
+                try:
+                    _ = update_items(order_id, items)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    # Recompute subtotal from items if needed
+    try:
+        if items and not order.get("subtotal"):
+            subtotal = 0.0
+            for it in items:
+                q = float(it.get("quantity", 0) or 0)
+                c = float(it.get("unit_cost", it.get("cost", 0)) or 0)
+                subtotal += q * c
+            order["subtotal"] = subtotal
+    except Exception:
+        pass
     return {
         "order": {
             "id": order.get("id"),
             "source_file": order.get("source_file"),
-            "items": order.get("items", []),
+            "items": items,
             "subtotal": order.get("subtotal", 0),
             "status": order.get("status")
         }
@@ -586,6 +634,7 @@ async def orders_data():
 class OrderStatusUpdate(BaseModel):
     id: str
     status: str
+    prompt: Optional[str] = None
 
 
 @app.post(
@@ -597,7 +646,9 @@ class OrderStatusUpdate(BaseModel):
 async def orders_status(update: OrderStatusUpdate):
     if update.status not in ("Quoted", "Sent", "Received"):
         return JSONResponse(status_code=400, content={"error": "invalid status"})
-    updated = update_status(update.id, update.status)
+    # Use explicit prompt if provided; else fallback to current agent prompt context
+    effective_prompt = update.prompt if update.prompt else AGENT_PROMPT.get()
+    updated = update_status(update.id, update.status, prompt=effective_prompt)
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
     return updated

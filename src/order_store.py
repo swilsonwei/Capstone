@@ -119,10 +119,36 @@ def list_orders() -> List[Dict[str, Any]]:
     return list(store.get("orders", []))
 
 
-def update_status(order_id: str, status: str) -> Dict[str, Any]:
-    # If Supabase is configured, update there first to handle cases where local store is stale/ephemeral
+def update_status(order_id: str, status: str, prompt: str | None = None) -> Dict[str, Any]:
+    # If Supabase is configured, check current status and update only if it changed
     if _sb:
         try:
+            # Read current status first
+            curr_resp = _sb.table("orders").select("id,status,source_file,items_count,subtotal,created_at,items").eq("id", order_id).limit(1).execute()
+            curr_row = (curr_resp.data or [])[0] if hasattr(curr_resp, "data") and curr_resp.data else None
+            if curr_row and str(curr_row.get("status")) == str(status):
+                # No change; ensure local cache mirrors and return without logging
+                store = _ensure_store()
+                found = None
+                for o in store.get("orders", []):
+                    if o.get("id") == order_id:
+                        o["status"] = status
+                        found = o
+                        break
+                if found is None:
+                    found = {
+                        "id": curr_row.get("id"),
+                        "source_file": curr_row.get("source_file", ""),
+                        "items_count": int(curr_row.get("items_count", 0) or 0),
+                        "subtotal": float(curr_row.get("subtotal", 0) or 0.0),
+                        "status": status,
+                        "created_at": curr_row.get("created_at") or datetime.utcnow().isoformat() + "Z",
+                        "items": curr_row.get("items") or [],
+                    }
+                    store.setdefault("orders", []).append(found)
+                _save_store(store)
+                return found
+
             _sb.table("orders").update({"status": status}).eq("id", order_id).execute()
             resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
             sb_order = (resp.data or [])[0] if hasattr(resp, "data") and resp.data else None
@@ -153,7 +179,8 @@ def update_status(order_id: str, status: str) -> Dict[str, Any]:
                     append_log({
                         "type": "order_status_updated",
                         "order_id": order_id,
-                        "details": {"status": status}
+                        "details": {"status": status},
+                        "prompt": prompt,
                     })
                 except Exception:
                     pass
@@ -174,7 +201,8 @@ def update_status(order_id: str, status: str) -> Dict[str, Any]:
                 append_log({
                     "type": "order_status_updated",
                     "order_id": order_id,
-                    "details": {"status": status}
+                    "details": {"status": status},
+                    "prompt": prompt,
                 })
             except Exception:
                 pass
