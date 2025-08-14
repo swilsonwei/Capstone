@@ -116,16 +116,54 @@ def list_orders() -> List[Dict[str, Any]]:
 
 
 def update_status(order_id: str, status: str) -> Dict[str, Any]:
+    # If Supabase is configured, update there first to handle cases where local store is stale/ephemeral
+    if _sb:
+        try:
+            _sb.table("orders").update({"status": status}).eq("id", order_id).execute()
+            resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
+            sb_order = (resp.data or [])[0] if hasattr(resp, "data") and resp.data else None
+            if sb_order:
+                # Sync local cache if present; if missing, create a minimal local record
+                store = _ensure_store()
+                target = None
+                for o in store.get("orders", []):
+                    if o.get("id") == order_id:
+                        o["status"] = status
+                        target = o
+                        break
+                if target is None:
+                    target = {
+                        "id": sb_order.get("id"),
+                        "source_file": sb_order.get("source_file", ""),
+                        "items_count": int(sb_order.get("items_count", 0) or 0),
+                        "subtotal": float(sb_order.get("subtotal", 0) or 0.0),
+                        "status": status,
+                        "created_at": sb_order.get("created_at") or datetime.utcnow().isoformat() + "Z",
+                        "items": [],
+                    }
+                    store.setdefault("orders", []).append(target)
+                _save_store(store)
+                # Audit log
+                try:
+                    from src.audit_log import append_log
+                    append_log({
+                        "type": "order_status_updated",
+                        "order_id": order_id,
+                        "details": {"status": status}
+                    })
+                except Exception:
+                    pass
+                return target
+        except Exception:
+            # fall back to local-only update below
+            pass
+
+    # Local-only fallback
     store = _ensure_store()
     for o in store.get("orders", []):
         if o.get("id") == order_id:
             o["status"] = status
             _save_store(store)
-            if _sb:
-                try:
-                    _sb.table("orders").update({"status": status}).eq("id", order_id).execute()
-                except Exception:
-                    pass
             # Audit log
             try:
                 from src.audit_log import append_log
@@ -235,5 +273,6 @@ def delete_order(order_id: str) -> bool:
         except Exception:
             pass
     return changed
+
 
 
