@@ -151,14 +151,15 @@
       const resultEl = document.getElementById('result');
       let history = [];
       runBtn.addEventListener('click', async () => {
-        const user = `You: ${promptEl.value}\n`;
+        const text = promptEl.value; promptEl.value = '';
+        const user = `You: ${text}\n`;
         resultEl.textContent += user;
-        history.push({ role: 'user', content: promptEl.value });
+        history.push({ role: 'user', content: text });
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptEl.value, history })
+            body: JSON.stringify({ prompt: text, history })
           });
           const data = await res.json();
           const msg = toHumanReadable(data);

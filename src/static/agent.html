@@ -179,14 +179,16 @@
         return JSON.stringify(data, null, 2);
       }
       runBtn.addEventListener('click', async () => {
-        const user=document.createElement('div'); user.className='bubble user'; user.textContent=promptEl.value; chatEl.appendChild(user);
-        history.push({ role: 'user', content: promptEl.value });
+        const text = promptEl.value;
+        const user=document.createElement('div'); user.className='bubble user'; user.textContent=text; chatEl.appendChild(user);
+        history.push({ role: 'user', content: text });
+        promptEl.value = '';
         const bot=document.createElement('div'); bot.className='bubble bot'; bot.innerHTML='<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptEl.value, history })
+            body: JSON.stringify({ prompt: text, history })
           });
           const data = await res.json();
           const msg = toHumanReadable(data);

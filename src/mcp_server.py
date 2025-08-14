@@ -180,6 +180,7 @@ async def agent_run(req: AgentRunRequest):
             "- Ensure idempotency: avoid duplicate submissions; each intended action should execute once.\n"
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
+            "- For 'clone then add items' flows: call clone_order → fetch items (pricing_data) → save merged items (pricing_save) or call add_items_to_order when available.\n"
             '- Respond with a concise JSON summary, e.g.: {updated_ids:[...], created_id:"", actions:["listed","updated"], notes:""}.\n'
         )
         # Build conversational context from history
@@ -198,44 +199,8 @@ async def agent_run(req: AgentRunRequest):
         # Set prompt context for downstream tool calls
         prompt_token = AGENT_PROMPT.set(req.prompt)
 
-        # Try to capture intermediate reasoning/steps if streaming is available
-        try:
-            append_log({"type": "agent_run_start", "prompt": req.prompt})
-            async for step in agent.stream(combined_prompt):
-                # Serialize any step/event payload as text for the audit trail
-                s = str(step)
-                append_log({"type": "agent_step", "prompt": req.prompt, "event": s})
-                # Heuristic extraction for tool call/result for richer logs
-                m_call = re.search(r"Tool call:\s*([^\s]+)", s)
-                if m_call:
-                    tool_name = m_call.group(1)
-                    m_in = re.search(r"with input:\s*(\{[\s\S]*\})", s)
-                    input_text = m_in.group(1) if m_in else s
-                    append_log({
-                        "type": "agent_tool_call",
-                        "prompt": req.prompt,
-                        "tool_name": tool_name,
-                        "tokens_input": int(max(1, len(input_text)//4)),
-                        "event": input_text,
-                    })
-                m_res = re.search(r"Tool result:\s*(\{[\s\S]*\}|.+)$", s)
-                if m_res:
-                    result_text = m_res.group(1)
-                    # Attempt to find prior tool name in same step string
-                    tool_name = None
-                    m_prev = re.search(r"Tool call:\s*([^\s]+)", s)
-                    if m_prev:
-                        tool_name = m_prev.group(1)
-                    append_log({
-                        "type": "agent_tool_result",
-                        "prompt": req.prompt,
-                        "tool_name": tool_name,
-                        "tokens_output": int(max(1, len(result_text)//4)),
-                        "event": result_text,
-                    })
-        except Exception as stream_err:
-            # Streaming not supported or failed; record and continue to final run
-            append_log({"type": "agent_stream_unavailable", "prompt": req.prompt, "error": str(stream_err)})
+        # Log start (disable streamed execution to avoid duplicate tool runs)
+        append_log({"type": "agent_run_start", "prompt": req.prompt})
 
         result = await agent.run(combined_prompt)
         append_log({
@@ -801,6 +766,35 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
         return {"order": new_order}
     except Exception as e:
         append_log({"type": "order_clone_error", "details": {"error": str(e), "payload": payload.dict()}})
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+class AddItemsRequest(BaseModel):
+    order_id: str
+    additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
+
+
+@app.post("/orders/add_items", operation_id="add_items_to_order")
+async def add_items_to_order(payload: AddItemsRequest) -> Dict:
+    """Add line items to an existing order (two-step flows: clone → add items)."""
+    try:
+        existing = get_order(payload.order_id)
+        if not existing:
+            return JSONResponse(status_code=404, content={"error": "order not found"})
+        base_items = list(existing.get("items", []))
+        add_items, _ = _normalize_items(payload.additions)
+        merged = base_items + add_items
+        updated = update_items(payload.order_id, merged)
+        if not updated:
+            return JSONResponse(status_code=400, content={"error": "failed to update items"})
+        append_log({
+            "type": "order_items_added",
+            "order_id": payload.order_id,
+            "details": {"added": add_items, "new_items_count": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)},
+        })
+        return {"order": updated}
+    except Exception as e:
+        append_log({"type": "order_items_add_error", "details": {"error": str(e), "payload": payload.dict()}})
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 class CreateVariantRequest(BaseModel):

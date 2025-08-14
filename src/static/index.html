@@ -120,7 +120,7 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         padding: 12px;
-        font-size: 12px;
+        font-size: 16px;
         line-height: 1.45;
         max-height: 280px;
         overflow: auto;
@@ -302,15 +302,18 @@
 
       runBtn.addEventListener('click', async () => {
         // Append user message above the prompt (persisting panel)
-        const user = document.createElement('div'); user.className='bubble user'; user.textContent = promptEl.value; chatEl.appendChild(user);
+        const text = promptEl.value;
+        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
         // Track in session history
-        history.push({ role: 'user', content: promptEl.value });
+        history.push({ role: 'user', content: text });
+        // Clear prompt
+        promptEl.value = '';
         const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: promptEl.value, history })
+            body: JSON.stringify({ prompt: text, history })
           });
           const data = await res.json();
           const msg = toHumanReadable(data);
