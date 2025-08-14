@@ -25,7 +25,8 @@ mcp_config = {
     "mcpServers": {
         "local-mcp-server": {
             "type": "http",
-            "url": "http://localhost:8000/mcp",
+            # Use Render's port if present; defaults to 8000 locally
+            "url": f"http://localhost:{os.getenv('PORT', '8000')}/mcp",
             "headers": {
                 "Content-Type": "application/json"
             }

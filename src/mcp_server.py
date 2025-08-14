@@ -580,6 +580,108 @@ async def orders_stats():
         "total_count": len(orders)
     }
 
+
+@app.get("/orders/top", operation_id="identify_orders")
+async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
+    """Identify highest-cost orders (for MCP usage). Optionally filter by status.
+
+    - limit: number of orders to return (default 3)
+    - include_status: one of "any", "open" (Quoted/Sent), or a specific status
+    """
+    all_orders = list_orders()
+    if include_status == "open":
+        candidates = [o for o in all_orders if o.get("status") in ("Quoted", "Sent")]
+    elif include_status in ("Quoted", "Sent", "Received"):
+        candidates = [o for o in all_orders if o.get("status") == include_status]
+    else:
+        candidates = all_orders
+
+    # Sort by subtotal descending and take top N
+    top = sorted(candidates, key=lambda o: float(o.get("subtotal", 0) or 0), reverse=True)[: max(1, limit)]
+
+    # Minimal projection for LLM consumption
+    result = [
+        {
+            "id": o.get("id"),
+            "subtotal": float(o.get("subtotal", 0) or 0),
+            "status": o.get("status"),
+            "source_file": o.get("source_file"),
+        }
+        for o in top
+    ]
+
+    # Audit trail (GET)
+    append_log({
+        "type": "orders_identified_top",
+        "details": {"limit": limit, "include_status": include_status, "ids": [r["id"] for r in result]},
+        "route": "/orders/top",
+        "method": "GET",
+        "status": 200,
+    })
+    return {"orders": result}
+
+
+class CloneOrderRequest(BaseModel):
+    source_order_id: str
+    additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
+
+
+def _normalize_items(items: list) -> tuple[list, float]:
+    normalized = []
+    subtotal = 0.0
+    for it in items or []:
+        name = str(it.get("item", "")).strip()
+        try:
+            qty = float(it.get("quantity", 0))
+        except Exception:
+            qty = 0.0
+        try:
+            unit_cost = float(it.get("unit_cost", it.get("cost", 0)))
+        except Exception:
+            unit_cost = 0.0
+        line_total = qty * unit_cost
+        subtotal += line_total
+        normalized.append({
+            "item": name,
+            "quantity": qty,
+            "unit_cost": unit_cost,
+            "line_total": line_total,
+        })
+    return normalized, float(subtotal)
+
+
+@app.post("/orders/clone", operation_id="clone_order")
+async def clone_order(payload: CloneOrderRequest) -> Dict:
+    """Clone an existing order and add line items (e.g., Service Charge). Returns the new order."""
+    source = get_order(payload.source_order_id)
+    if not source:
+        return JSONResponse(status_code=404, content={"error": "source order not found"})
+
+    base_items = source.get("items", [])
+    add_items, add_subtotal = _normalize_items(payload.additions)
+    all_items = base_items + add_items
+    normalized, subtotal = _normalize_items(all_items)
+
+    # Create a brand-new order with combined items
+    source_name = source.get("source_file") or f"Cloned from {payload.source_order_id}"
+    new_order = create_order(source_name, subtotal, len(normalized), status="Quoted", items=normalized)
+
+    append_log({
+        "type": "order_cloned",
+        "order_id": new_order.get("id"),
+        "details": {
+            "source": payload.source_order_id,
+            "additions": payload.additions,
+            "items_count": len(normalized),
+            "subtotal": subtotal,
+        },
+        "route": "/orders/clone",
+        "method": "POST",
+        "status": 200,
+    })
+
+    return {"order": new_order}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
