@@ -540,7 +540,12 @@ async def pricing_save(order_id: str, body: PricingUpdate):
     return {"ok": True, "order": updated}
 
 
-@app.get("/orders/data")
+@app.get(
+    "/orders/data",
+    operation_id="list_orders",
+    summary="List all orders",
+    description="Returns an object with `orders`, where each order contains: `id`, `subtotal`, `status`, `source_file`, `items_count`, `created_at` (and optionally `items`)."
+)
 async def orders_data():
     return {"orders": list_orders()}
 
@@ -550,7 +555,12 @@ class OrderStatusUpdate(BaseModel):
     status: str
 
 
-@app.post("/orders/status")
+@app.post(
+    "/orders/status",
+    operation_id="update_order_status",
+    summary="Update a single order status",
+    description="Body must be `{ id: string, status: Quoted|Sent|Received }`. Returns the updated order."
+)
 async def orders_status(update: OrderStatusUpdate):
     if update.status not in ("Quoted", "Sent", "Received"):
         return JSONResponse(status_code=400, content={"error": "invalid status"})
