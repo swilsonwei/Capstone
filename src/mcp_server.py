@@ -86,17 +86,7 @@ async def greet(name: str) -> Dict:
 async def read_root():
     return {"message": "Welcome to the FastAPI MCP server!"}
 
-# Initialize FastAPIMCP
-# You can specify include_routes or exclude_routes to control exposed endpoints
-mcp_server = FastApiMCP(app,    
-    name="MCP API",
-    description="MCP server for the API",
-    describe_full_response_schema=True,  # Describe the full response JSON-schema instead of just a response example
-    describe_all_responses=True,  # Describe all the possible responses instead of just the success (2XX) response
-)
-
-# Mount the MCP server to your FastAPI app
-mcp_server.mount()
+# NOTE: MCP mounting moved to the end of the file to ensure ALL routes are exposed as tools
 
 # Mount static files for a simple frontend UI
 static_dir = Path(__file__).resolve().parent / "static"
@@ -701,6 +691,16 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
     })
 
     return {"order": new_order}
+
+# Initialize FastAPIMCP AFTER all routes are defined so every endpoint is exposed as a tool
+mcp_server = FastApiMCP(
+    app,
+    name="MCP API",
+    description="MCP server for the API",
+    describe_full_response_schema=True,
+    describe_all_responses=True,
+)
+mcp_server.mount()
 
 if __name__ == "__main__":
     import uvicorn
