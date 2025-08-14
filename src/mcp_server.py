@@ -167,11 +167,14 @@ async def agent_run(req: AgentRunRequest):
 
         TOOL_GUIDE = (
             "System instructions:\n"
-            "- You have tools: list_orders (GET /orders/data) and update_order_status (POST /orders/status with {id,status}).\n"
-            "- When asked to find top/high/second/etc., first call list_orders, then compute in memory: sort by 'subtotal' desc, filter by status if implied (e.g., 'open' = Quoted or Sent), and infer N from the request if given.\n"
-            "- After selecting orders, call update_order_status for each with the requested status (e.g., 'Sent').\n"
-            "- Never say you lack access; always use the tools to fetch and act.\n"
-            "- Return a concise JSON summary: {updated_ids: [...], notes: ""}.\n"
+            "- Discover available tools dynamically from the MCP server schema and choose the minimal set of actions to fulfill the user's intent.\n"
+            "- Plan before acting: retrieve any required data first (e.g., list entities), reason in-memory (sort/filter/compare), then execute precise updates or creations.\n"
+            "- Respect data safety: do not modify a source entity when the user asks to create a similar/variant entity unless they explicitly request modifications to the original.\n"
+            "- Prefer high-level tools when available (e.g., clone/variant creators) rather than orchestrating multi-step sequences, but fall back gracefully to lower-level tools.\n"
+            "- Ensure idempotency: avoid duplicate submissions; each intended action should execute once.\n"
+            "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
+            "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
+            "- Respond with a concise JSON summary, e.g.: {updated_ids:[...], created_id:"", actions:["listed","updated"], notes:""}.\n"
         )
         combined_prompt = f"{TOOL_GUIDE}\n\nUser: {req.prompt}"
 
