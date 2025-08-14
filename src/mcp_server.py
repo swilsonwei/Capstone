@@ -711,61 +711,79 @@ class CloneOrderRequest(BaseModel):
     additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
 
 
+def _to_float(value) -> float:
+    try:
+        if isinstance(value, (int, float)):
+            return float(value)
+        s = str(value).strip().replace("$", "").replace(",", "")
+        return float(s) if s else 0.0
+    except Exception:
+        return 0.0
+
+
 def _normalize_items(items: list) -> tuple[list, float]:
     normalized = []
     subtotal = 0.0
     for it in items or []:
         name = str(it.get("item", "")).strip()
-        try:
-            qty = float(it.get("quantity", 0))
-        except Exception:
-            qty = 0.0
-        try:
-            unit_cost = float(it.get("unit_cost", it.get("cost", 0)))
-        except Exception:
-            unit_cost = 0.0
+        qty_raw = it.get("quantity", it.get("qty", it.get("q", it.get("count", 0))))
+        cost_raw = it.get(
+            "unit_cost",
+            it.get(
+                "cost",
+                it.get("amount", it.get("price", it.get("unitPrice", it.get("unit_price", 0)))),
+            ),
+        )
+        qty = _to_float(qty_raw)
+        unit_cost = _to_float(cost_raw)
         line_total = qty * unit_cost
         subtotal += line_total
-        normalized.append({
-            "item": name,
-            "quantity": qty,
-            "unit_cost": unit_cost,
-            "line_total": line_total,
-        })
+        normalized.append(
+            {
+                "item": name,
+                "quantity": qty,
+                "unit_cost": unit_cost,
+                "line_total": line_total,
+            }
+        )
     return normalized, float(subtotal)
 
 
 @app.post("/orders/clone", operation_id="clone_order")
 async def clone_order(payload: CloneOrderRequest) -> Dict:
     """Clone an existing order and add line items (e.g., Service Charge). Returns the new order."""
-    source = get_order(payload.source_order_id)
-    if not source:
-        return JSONResponse(status_code=404, content={"error": "source order not found"})
+    try:
+        source = get_order(payload.source_order_id)
+        if not source:
+            return JSONResponse(status_code=404, content={"error": "source order not found"})
 
-    base_items = source.get("items", [])
-    add_items, add_subtotal = _normalize_items(payload.additions)
-    all_items = base_items + add_items
-    normalized, subtotal = _normalize_items(all_items)
+        base_items = source.get("items", [])
+        add_items, _ = _normalize_items(payload.additions)
+        all_items = base_items + add_items
+        normalized, subtotal = _normalize_items(all_items)
 
-    # Create a brand-new order with combined items
-    source_name = source.get("source_file") or f"Cloned from {payload.source_order_id}"
-    new_order = create_order(source_name, subtotal, len(normalized), status="Quoted", items=normalized)
+        source_name = source.get("source_file") or f"Cloned from {payload.source_order_id}"
+        new_order = create_order(source_name, subtotal, len(normalized), status="Quoted", items=normalized)
 
-    append_log({
-        "type": "order_cloned",
-        "order_id": new_order.get("id"),
-        "details": {
-            "source": payload.source_order_id,
-            "additions": payload.additions,
-            "items_count": len(normalized),
-            "subtotal": subtotal,
-        },
-        "route": "/orders/clone",
-        "method": "POST",
-        "status": 200,
-    })
-
-    return {"order": new_order}
+        append_log(
+            {
+                "type": "order_cloned",
+                "order_id": new_order.get("id"),
+                "details": {
+                    "source": payload.source_order_id,
+                    "additions": payload.additions,
+                    "items_count": len(normalized),
+                    "subtotal": subtotal,
+                },
+                "route": "/orders/clone",
+                "method": "POST",
+                "status": 200,
+            }
+        )
+        return {"order": new_order}
+    except Exception as e:
+        append_log({"type": "order_clone_error", "details": {"error": str(e), "payload": payload.dict()}})
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 class CreateVariantRequest(BaseModel):
     source_order_id: str = Field(..., description="Existing order id to clone from")
@@ -779,36 +797,41 @@ async def create_variant_order(payload: CreateVariantRequest) -> Dict:
 
     This endpoint NEVER modifies the source order. It returns the newly created order id.
     """
-    if payload.status not in ("Quoted", "Sent", "Received"):
-        return JSONResponse(status_code=400, content={"error": "invalid status"})
-    source = get_order(payload.source_order_id)
-    if not source:
-        return JSONResponse(status_code=404, content={"error": "source order not found"})
+    try:
+        if payload.status not in ("Quoted", "Sent", "Received"):
+            return JSONResponse(status_code=400, content={"error": "invalid status"})
+        source = get_order(payload.source_order_id)
+        if not source:
+            return JSONResponse(status_code=404, content={"error": "source order not found"})
 
-    base_items = source.get("items", [])
-    add_items, _ = _normalize_items(payload.additions)
-    combined = base_items + add_items
-    normalized, subtotal = _normalize_items(combined)
+        base_items = source.get("items", [])
+        add_items, _ = _normalize_items(payload.additions)
+        combined = base_items + add_items
+        normalized, subtotal = _normalize_items(combined)
 
-    source_name = source.get("source_file") or f"Variant of {payload.source_order_id}"
-    new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized)
+        source_name = source.get("source_file") or f"Variant of {payload.source_order_id}"
+        new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized)
 
-    append_log({
-        "type": "order_variant_created",
-        "order_id": new_order.get("id"),
-        "details": {
-            "source": payload.source_order_id,
-            "additions": payload.additions,
-            "status": payload.status,
-            "items_count": len(normalized),
-            "subtotal": subtotal,
-        },
-        "route": "/orders/variant",
-        "method": "POST",
-        "status": 200,
-    })
-
-    return {"order": new_order}
+        append_log(
+            {
+                "type": "order_variant_created",
+                "order_id": new_order.get("id"),
+                "details": {
+                    "source": payload.source_order_id,
+                    "additions": payload.additions,
+                    "status": payload.status,
+                    "items_count": len(normalized),
+                    "subtotal": subtotal,
+                },
+                "route": "/orders/variant",
+                "method": "POST",
+                "status": 200,
+            }
+        )
+        return {"order": new_order}
+    except Exception as e:
+        append_log({"type": "order_variant_error", "details": {"error": str(e), "payload": payload.dict()}})
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 # Initialize FastAPIMCP AFTER all routes are defined so every endpoint is exposed as a tool
 mcp_server = FastApiMCP(

@@ -146,8 +146,8 @@
 
       /* Chat bubbles for result */
       .chat { display: flex; flex-direction: column; gap: 8px; }
-      .bubble { 
-        max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); font-weight: 600;
+      .bubble {
+        max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); font-weight: 400;
       }
       .bubble.user { margin-left: auto; background: #e0e7ff; color: #1e1b4b; }
       .bubble.bot { margin-right: auto; background: #f1f5f9; color: var(--prompt-text); }
@@ -190,16 +190,16 @@
             <div class="row">
               <label for="file">Select PDF or DOCX</label>
               <div id="dropzone" class="dropzone">Drag & drop file here, or click to browse</div>
-              <input style="display:none" type="file" id="file" accept=".pdf,.docx" required />
+              <input style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" type="file" id="file" accept=".pdf,.docx" />
             </div>
             <div class="row actions">
-              <button type="submit">Upload & Ingest</button>
+              <button id="uploadBtn" type="button">Upload & Ingest</button>
               <button id="openPdf" type="button" style="display:none">Open PDF Preview</button>
             </div>
           </form>
           <h3 style="margin-top:14px">Ingest Result</h3>
-          <div id="tableWrap"></div>
-          <pre id="ingestResult">(no result yet)</pre>
+          <div id="tableWrap" style="color: var(--prompt-text)"></div>
+          <pre id="ingestResult" style="color: var(--prompt-text)">(no result yet)</pre>
           <div id="pricingLink" style="margin-top:8px"></div>
         </div>
 
@@ -226,6 +226,15 @@
       const promptEl = document.getElementById('prompt');
       const chatEl = document.getElementById('chat');
       const uploadForm = document.getElementById('uploadForm');
+      const uploadBtn = document.getElementById('uploadBtn');
+      // Ensure clicking the Upload button opens the picker if no file is chosen yet
+      uploadBtn.addEventListener('click', () => {
+        if (!fileEl.files || !fileEl.files.length) {
+          fileEl.click();
+        } else {
+          uploadForm.requestSubmit();
+        }
+      });
       const fileEl = document.getElementById('file');
       const ingestResultEl = document.getElementById('ingestResult');
       const tableWrap = document.getElementById('tableWrap');

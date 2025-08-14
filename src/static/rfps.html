@@ -15,16 +15,17 @@
       .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; box-shadow:var(--shadow-sm) }
       .icon-btn:hover { background:rgba(0,0,0,.03) }
       .container{ max-width: 1120px; margin:0 auto; padding:24px; }
-      .tabs { display:flex; gap:10px; border-bottom:1px solid #e5e7eb; margin-bottom:20px; }
+      .tabs { display:flex; gap:10px; border-bottom:none; margin-bottom:20px; }
       .tab { padding:10px 12px; color:#6b7280; text-decoration:none; border:1px solid transparent; border-top-left-radius:8px; border-top-right-radius:8px; }
       .tab.active { color:#0f172a; background:#fff; border-color:#e5e7eb #e5e7eb #fff; }
       .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; box-shadow: var(--shadow-md) }
-      .two-col { display:grid; grid-template-columns: 1fr .8fr; gap:24px; }
+      .two-col { display:grid; grid-template-columns: 1fr; gap:24px; }
+      @media (min-width: 960px) { .two-col { grid-template-columns: 1.4fr .8fr; } }
       .sticky { position: sticky; top: 16px; }
       .row { margin-bottom: 14px; }
       label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
-      textarea { 
-        width:100%; background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:14px; color:var(--prompt-text); font-weight: 600;
+      textarea {
+        width:100%; background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:14px; color:var(--prompt-text); font-weight: 400;
       }
       input[type="file"] { width:100%; background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:14px; color:var(--prompt-text); }
       input[type="file"] { height: 40px; padding:6px 10px; }
@@ -66,15 +67,15 @@
           <div class="row">
             <label for="file">Select PDF or DOCX</label>
             <div id="dropzone" class="dropzone">Drag & drop file here, or click to browse</div>
-            <input style="display:none" type="file" id="file" accept=".pdf,.docx" required />
+            <input style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" type="file" id="file" accept=".pdf,.docx" />
           </div>
           <div class="row">
-            <button type="submit">Upload & Ingest</button>
+            <button id="uploadBtn" type="button">Upload & Ingest</button>
           </div>
           </form>
           <h3>Ingest Result</h3>
-          <div id="tableWrap"></div>
-          <pre id="ingestResult">(no result yet)</pre>
+          <div id="tableWrap" style="color: var(--prompt-text)"></div>
+          <pre id="ingestResult" style="color: var(--prompt-text)">(no result yet)</pre>
           <button id="openPdf" style="display:none">Open PDF Preview</button>
         </div>
         <div class="card sticky">
@@ -93,6 +94,15 @@
     </div>
     <script>
       const uploadForm = document.getElementById('uploadForm');
+      const uploadBtn = document.getElementById('uploadBtn');
+      // Ensure clicking the Upload button opens the picker if no file is chosen yet
+      uploadBtn.addEventListener('click', () => {
+        if (!fileEl.files || !fileEl.files.length) {
+          fileEl.click();
+        } else {
+          uploadForm.requestSubmit();
+        }
+      });
       const fileEl = document.getElementById('file');
       const ingestResultEl = document.getElementById('ingestResult');
       const tableWrap = document.getElementById('tableWrap');
