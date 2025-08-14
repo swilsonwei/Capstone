@@ -89,6 +89,16 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
             _sb.table("orders").insert(row).execute()
         except Exception:
             pass
+    # Emit audit log (best-effort)
+    try:
+        from src.audit_log import append_log
+        append_log({
+            "type": "order_created",
+            "order_id": order_id,
+            "details": {"source_file": source_file, "items_count": items_count, "subtotal": subtotal}
+        })
+    except Exception:
+        pass
     return order
 
 
@@ -116,6 +126,16 @@ def update_status(order_id: str, status: str) -> Dict[str, Any]:
                     _sb.table("orders").update({"status": status}).eq("id", order_id).execute()
                 except Exception:
                     pass
+            # Audit log
+            try:
+                from src.audit_log import append_log
+                append_log({
+                    "type": "order_status_updated",
+                    "order_id": order_id,
+                    "details": {"status": status}
+                })
+            except Exception:
+                pass
             return o
     return {}
 
@@ -181,6 +201,39 @@ def update_items(order_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any] |
             }).eq("id", order_id).execute()
         except Exception:
             pass
+    # Audit log
+    try:
+        from src.audit_log import append_log
+        append_log({
+            "type": "order_items_updated",
+            "order_id": order_id,
+            "details": {"items_count": len(normalized), "subtotal": float(subtotal)}
+        })
+    except Exception:
+        pass
     return target
+
+
+def delete_order(order_id: str) -> bool:
+    """Delete an order from local store and Supabase (if configured) and log an audit entry."""
+    store = _ensure_store()
+    before = len(store.get("orders", []))
+    store["orders"] = [o for o in store.get("orders", []) if o.get("id") != order_id]
+    after = len(store["orders"])
+    changed = after < before
+    if changed:
+        _save_store(store)
+    if _sb:
+        try:
+            _sb.table("orders").delete().eq("id", order_id).execute()
+        except Exception:
+            pass
+    if changed:
+        try:
+            from src.audit_log import append_log
+            append_log({"type": "order_deleted", "order_id": order_id})
+        except Exception:
+            pass
+    return changed
 
 
