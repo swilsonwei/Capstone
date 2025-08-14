@@ -175,17 +175,27 @@ async def agent_run(req: AgentRunRequest):
         llm = ChatOpenAI(model="gpt-4o-mini", streaming=False)
         agent = MCPAgent(llm=llm, client=client, max_steps=20)
 
+        TOOL_GUIDE = (
+            "System instructions:\n"
+            "- You have tools: list_orders (GET /orders/data) and update_order_status (POST /orders/status with {id,status}).\n"
+            "- When asked to find top/high/second/etc., first call list_orders, then compute in memory: sort by 'subtotal' desc, filter by status if implied (e.g., 'open' = Quoted or Sent), and infer N from the request if given.\n"
+            "- After selecting orders, call update_order_status for each with the requested status (e.g., 'Sent').\n"
+            "- Never say you lack access; always use the tools to fetch and act.\n"
+            "- Return a concise JSON summary: {updated_ids: [...], notes: ""}.\n"
+        )
+        combined_prompt = f"{TOOL_GUIDE}\n\nUser: {req.prompt}"
+
         # Try to capture intermediate reasoning/steps if streaming is available
         try:
             append_log({"type": "agent_run_start", "prompt": req.prompt})
-            async for step in agent.stream(req.prompt):
+            async for step in agent.stream(combined_prompt):
                 # Serialize any step/event payload as text for the audit trail
                 append_log({"type": "agent_step", "prompt": req.prompt, "event": str(step)})
         except Exception as stream_err:
             # Streaming not supported or failed; record and continue to final run
             append_log({"type": "agent_stream_unavailable", "prompt": req.prompt, "error": str(stream_err)})
 
-        result = await agent.run(req.prompt)
+        result = await agent.run(combined_prompt)
         append_log({
             "type": "agent_run",
             "prompt": req.prompt,
