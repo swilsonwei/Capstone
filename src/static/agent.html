@@ -17,10 +17,11 @@
         --table-header: #f1f5f9;
         --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
         --shadow-md: 0 6px 14px rgba(16,24,40,.08);
+        --prompt-text: #374151;
       }
       [data-theme="dark"] {
         --bg: #0b1220; --surface: #0f172a; --text: #e5e7eb; --muted: #97a3b6; --border: #1f2937;
-        --accent: #22d3ee; --accent-600: #06b6d4; --accent-700: #0891b2; --table-header: #0b1220;
+        --accent: #22d3ee; --accent-600: #06b6d4; --accent-700: #0891b2; --table-header: #0b1220; --prompt-text:#cbd5e1;
       }
       html, body { height: 100%; }
       body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"; }
@@ -42,7 +43,7 @@
       .sticky { position: sticky; top: 16px; }
       .row { margin-bottom: 14px; }
       label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-      textarea { width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--text); }
+      textarea { width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--prompt-text); }
       button { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
       button:hover { background: var(--accent-600); border-color: var(--accent-600); }
       button:active { background: var(--accent-700); border-color: var(--accent-700); }
@@ -96,8 +97,8 @@
             <button id="run">Run Agent</button>
           </div>
           <h3>Result</h3>
-          <div id="chat" class="chat">
-            <div class="bubble bot">(no result yet)</div>
+          <div id="chat" class="chat" style="color:var(--prompt-text)">
+            <div class="bubble bot" style="color:var(--prompt-text)">(no result yet)</div>
           </div>
         </div>
       </div>

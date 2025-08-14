@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>CPQ Agent</title>
+    <title>CPQ</title>
     <style>
       * { box-sizing: border-box; }
       :root {
@@ -17,6 +17,7 @@
         --table-header: #f1f5f9;
         --shadow-sm: 0 1px 2px rgba(16,24,40,.06);
         --shadow-md: 0 6px 14px rgba(16,24,40,.08);
+        --prompt-text: #374151; /* dark gray for prompt/result text */
       }
       [data-theme="dark"] {
         --bg: #0b1220;
@@ -28,6 +29,7 @@
         --accent-600: #06b6d4;
         --accent-700: #0891b2;
         --table-header: #0b1220;
+        --prompt-text: #cbd5e1; /* slate-300 */
       }
       html, body { height: 100%; }
       body {
@@ -70,7 +72,7 @@
         border-radius: 8px;
         padding: 10px 12px;
         font-size: 14px;
-        color: var(--text);
+        color: var(--prompt-text);
       }
       /* Make the file input align and size like other controls */
       input[type="file"] { height: 40px; padding: 6px 10px; }
@@ -144,7 +146,7 @@
       .chat { display: flex; flex-direction: column; gap: 8px; }
       .bubble { max-width: 80%; padding: 10px 12px; border-radius: 14px; box-shadow: var(--shadow-sm); }
       .bubble.user { margin-left: auto; background: #e0e7ff; color: #1e1b4b; }
-      .bubble.bot { margin-right: auto; background: #f1f5f9; }
+      .bubble.bot { margin-right: auto; background: #f1f5f9; color: var(--prompt-text); }
       .thinking { width: 36px; height: 12px; display: inline-flex; align-items: center; justify-content: space-between; }
       .thinking span { width: 6px; height: 6px; background: var(--muted); border-radius: 999px; display: inline-block; animation: bounce 1.2s infinite ease-in-out; }
       .thinking span:nth-child(2){ animation-delay: .15s; }
@@ -167,11 +169,6 @@
       </div>
     </div>
     <div class="container">
-      <div class="header">
-        <div>
-          <div class="title">CPQ Agent</div>
-        </div>
-      </div>
       <nav class="tabs">
         <a class="tab" href="/agent">Home</a>
         <a class="tab active" href="/">CPQ</a>
