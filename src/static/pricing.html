@@ -136,7 +136,7 @@
         meta.textContent = `Order ${o.id} — Source: ${o.source_file} — Subtotal: ${formatMoneyNoDecimals(o.subtotal||0)}`;
         tbody.innerHTML='';
         for(const it of (o.items||[])) tbody.appendChild(row(it));
-        setEditMode(false);
+        setEditMode(true);
       }
 
       function setEditMode(edit){

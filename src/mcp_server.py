@@ -250,21 +250,22 @@ async def agent_run(req: AgentRunRequest):
 
         # Set prompt context for downstream tool calls
         prompt_token = AGENT_PROMPT.set(req.prompt)
-        remember_agent_prompt(req.prompt)
+        # Persist full reasoning context (tool guide + conversation) for downstream audit logging
+        remember_agent_prompt(combined_prompt)
 
-        # Log start (disable streamed execution to avoid duplicate tool runs)
-        append_log({"type": "agent_run_start", "prompt": req.prompt})
+        # Log start (store full reasoning context in prompt)
+        append_log({"type": "agent_run_start", "prompt": combined_prompt})
 
         result = await agent.run(combined_prompt)
         append_log({
             "type": "agent_run",
-            "prompt": req.prompt,
+            "prompt": combined_prompt,
             "tokens_output": int(max(1, len(str(result))//4)),
             "result": result,
         })
         return {"result": result}
     except Exception as e:
-        append_log({"type": "agent_run_error", "prompt": req.prompt, "error": str(e)})
+        append_log({"type": "agent_run_error", "prompt": combined_prompt if 'combined_prompt' in locals() else req.prompt, "error": str(e)})
         return JSONResponse(status_code=400, content={"error": str(e)})
     finally:
         try:
@@ -649,6 +650,57 @@ async def logs_emit(body: LogEmit):
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 
+class NotetakerIngest(BaseModel):
+    notes: str = Field(..., description="Freeform transcript or call notes to generate a quote from")
+
+
+@app.post("/notetaker/ingest", operation_id="notetaker_ingest")
+async def notetaker_ingest(body: NotetakerIngest):
+    """Integration endpoint: ingest call notes, let the agent act, and return the new order id and pricing URL."""
+    notes = body.notes or ""
+    try:
+        append_log({
+            "type": "notetaker_ingest_start",
+            "prompt": notes,
+            "tool_name": "notetaker_ingest",
+        })
+        # Reuse the agent flow so full reasoning is captured in audit trail
+        _ = await agent_run(AgentRunRequest(prompt=notes, history=None))
+        # Identify the newest order (Supabase path returns desc by created_at)
+        orders = list_orders()
+        order_id = None
+        if isinstance(orders, list) and orders:
+            candidate = orders[0] if orders and isinstance(orders[0], dict) else None
+            order_id = candidate.get("id") if candidate else None
+            if not order_id:
+                # Fallback for local JSON store order
+                last = orders[-1] if orders else None
+                order_id = (last or {}).get("id")
+        if order_id:
+            append_log({
+                "type": "notetaker_ingest",
+                "order_id": order_id,
+                "prompt": notes,
+                "tool_name": "notetaker_ingest",
+            })
+            return {"ok": True, "order_id": order_id, "pricing_url": f"/pricing/{order_id}"}
+        append_log({
+            "type": "notetaker_ingest_error",
+            "prompt": notes,
+            "tool_name": "notetaker_ingest",
+            "details": {"error": "order not created"},
+        })
+        return JSONResponse(status_code=400, content={"error": "order not created"})
+    except Exception as e:
+        append_log({
+            "type": "notetaker_ingest_error",
+            "prompt": notes,
+            "tool_name": "notetaker_ingest",
+            "details": {"error": str(e)},
+        })
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
 class PricingUpdate(BaseModel):
     items: list
     prompt: Optional[str] = None
@@ -715,7 +767,7 @@ async def pricing_data(order_id: str):
 
 @app.post("/pricing/save/{order_id}")
 async def pricing_save(order_id: str, body: PricingUpdate):
-    effective_prompt = body.prompt if getattr(body, "prompt", None) else AGENT_PROMPT.get()
+    effective_prompt = body.prompt if getattr(body, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
     updated = update_items(order_id, (body.items or []), prompt=effective_prompt, tool_name="pricing_save")
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
@@ -747,8 +799,8 @@ class OrderStatusUpdate(BaseModel):
 async def orders_status(update: OrderStatusUpdate):
     if update.status not in ("Quoted", "Sent", "Received"):
         return JSONResponse(status_code=400, content={"error": "invalid status"})
-    # Use explicit prompt if provided; else fallback to current agent prompt context
-    effective_prompt = update.prompt if update.prompt else AGENT_PROMPT.get()
+    # Use explicit prompt if provided; else fallback to current/last agent prompt context
+    effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
     updated = update_status(update.id, update.status, prompt=effective_prompt, tool_name="update_order_status")
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
@@ -867,7 +919,7 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
         normalized, subtotal = _normalize_items(all_items)
 
         source_name = source.get("source_file") or f"Cloned from {payload.source_order_id}"
-        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else AGENT_PROMPT.get()
+        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
         new_order = create_order(source_name, subtotal, len(normalized), status="Quoted", items=normalized, prompt=effective_prompt, tool_name="clone_order")
 
         append_log(
@@ -913,7 +965,7 @@ async def add_items_to_order(payload: AddItemsRequest) -> Dict:
         base_items = list(existing.get("items", []))
         add_items, _ = _normalize_items(payload.additions)
         merged = base_items + add_items
-        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else AGENT_PROMPT.get()
+        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
         updated = update_items(payload.order_id, merged, prompt=effective_prompt, tool_name="add_items_to_order")
         if not updated:
             return JSONResponse(status_code=400, content={"error": "failed to update items"})
@@ -955,7 +1007,7 @@ async def create_variant_order(payload: CreateVariantRequest) -> Dict:
         normalized, subtotal = _normalize_items(combined)
 
         source_name = source.get("source_file") or f"Variant of {payload.source_order_id}"
-        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else AGENT_PROMPT.get()
+        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
         new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized, prompt=effective_prompt, tool_name="create_variant_order")
 
         append_log(
