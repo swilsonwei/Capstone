@@ -137,7 +137,16 @@
       async function load(){
         const res = await fetch(`/pricing/data/${orderId}`);
         const data = await res.json();
-        const o = data.order;
+        let o = data.order;
+        // If items are missing but items_count suggests otherwise, proactively request backend to rehydrate
+        if ((!o.items || !o.items.length) && Number(o.items_count||0) > 0){
+          try {
+            // Trigger server-side reconciliation by hitting pricing_data again
+            const res2 = await fetch(`/pricing/data/${orderId}`);
+            const data2 = await res2.json();
+            if (data2 && data2.order) o = data2.order;
+          } catch {}
+        }
         original = JSON.parse(JSON.stringify(o));
         meta.innerHTML = `
           <div class="meta">

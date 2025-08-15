@@ -819,6 +819,13 @@ async def notetaker_ingest(body: NotetakerIngest):
                 last = orders[-1] if orders else None
                 order_id = (last or {}).get("id")
         if order_id:
+            # Ensure order is in Quoted and items persisted before returning
+            try:
+                current = get_order(order_id) or {}
+                if current and current.get("status") != "Quoted":
+                    _ = update_status(order_id, "Quoted", prompt=notes)
+            except Exception:
+                pass
             append_log({
                 "type": "notetaker_ingest",
                 "order_id": order_id,

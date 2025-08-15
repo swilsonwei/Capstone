@@ -216,27 +216,35 @@ def update_status(order_id: str, status: str, prompt: str | None = None, tool_na
 
 def get_order(order_id: str) -> Dict[str, Any] | None:
     store = _ensure_store()
+    local: Dict[str, Any] | None = None
     for o in store.get("orders", []):
         if o.get("id") == order_id:
-            return o
-    # fallback to Supabase (items may not be available)
+            local = o
+            break
+    # Prefer Supabase when available; merge into local cache to keep items in sync
     if _sb:
         try:
             resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
             data = (resp.data or []) if hasattr(resp, "data") else []
-            row = dict(data[0]) if data else None
-            if row is None:
-                return None
-            # If Supabase row lacks items, enrich from local cache if present
-            if not row.get("items"):
-                for o in store.get("orders", []):
-                    if o.get("id") == order_id and o.get("items"):
-                        row["items"] = o.get("items")
-                        break
-            return row
+            sb_row = dict(data[0]) if data else None
         except Exception:
-            return None
-    return None
+            sb_row = None
+        if sb_row is not None:
+            # If Supabase has items and local does not, propagate to local cache
+            if sb_row.get("items") and local and not local.get("items"):
+                try:
+                    local["items"] = sb_row.get("items")
+                    local["items_count"] = int(sb_row.get("items_count", len(local.get("items", [])) or 0))
+                    local["subtotal"] = float(sb_row.get("subtotal", local.get("subtotal", 0)))
+                    _save_store(store)
+                except Exception:
+                    pass
+            # If local has items but Supabase lacks them, enrich the return value with local items
+            if (not sb_row.get("items")) and local and local.get("items"):
+                sb_row["items"] = local.get("items")
+            return sb_row
+    # Fallback to local if present
+    return local
 
 
 def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any] | None:
