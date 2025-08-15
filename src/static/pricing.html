@@ -18,6 +18,12 @@
       .breadcrumbs { margin-bottom: 12px; }
       a { color:#2563eb; text-decoration:none; }
       .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; box-shadow: var(--shadow-md) }
+      /* Meta subheader styling */
+      .meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0 12px; }
+      .badge { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--text); box-shadow: var(--shadow-sm); }
+      .badge .label { color:var(--muted); font-size:12px; }
+      .badge .value { font-size:14px; font-weight:700; }
+      .badge.accent { border-color: var(--accent); background: rgba(37,99,235,.08); }
       table { width:100%; border-collapse:collapse; font-size:14px; }
       th, td { border:1px solid var(--border); padding:8px 10px; }
       thead th { background:var(--table-header); text-align:left; }
@@ -51,7 +57,7 @@
     </div>
     <div class="container">
       <div class="breadcrumbs">
-        <a href="/cpq">← Back to CPQ</a> &nbsp;|&nbsp; <a href="/orders">Orders</a> &nbsp;|&nbsp; <a href="/notetaker">Notetaker</a>
+        <a href="/cpq">← Back to CPQ</a> &nbsp;|&nbsp; <a href="/orders">Orders</a>
       </div>
       <div class="card">
         <h2>Pricing</h2>
@@ -133,10 +139,30 @@
         const data = await res.json();
         const o = data.order;
         original = JSON.parse(JSON.stringify(o));
-        meta.textContent = `Order ${o.id} — Source: ${o.source_file} — Subtotal: ${formatMoneyNoDecimals(o.subtotal||0)}`;
+        meta.innerHTML = `
+          <div class="meta">
+            <span class="badge"><span class="label">Order</span><span class="value">${o.id||''}</span></span>
+            <span class="badge"><span class="label">Source</span><span class="value">${o.source_file||''}</span></span>
+            <span class="badge accent"><span class="label">Subtotal</span><span class="value">${formatMoneyNoDecimals(o.subtotal||0)}</span></span>
+          </div>
+        `;
         tbody.innerHTML='';
         for(const it of (o.items||[])) tbody.appendChild(row(it));
-        setEditMode(true);
+        // Guardrail: Sent/Received orders are read-only
+        const readOnly = String(o.status||'') === 'Sent' || String(o.status||'') === 'Received';
+        setEditMode(!readOnly);
+        if (readOnly) {
+          const saveBtn = document.getElementById('save');
+          const cancelBtn = document.getElementById('cancel');
+          const editBtn = document.getElementById('edit');
+          if (saveBtn) saveBtn.style.display = 'none';
+          if (cancelBtn) cancelBtn.style.display = 'none';
+          if (editBtn) editBtn.style.display = 'none';
+          const notice = document.createElement('div');
+          notice.className = 'subtitle';
+          notice.textContent = 'This order is read-only while in Sent or Received status.';
+          document.querySelector('.card').insertBefore(notice, document.getElementById('tbl'));
+        }
       }
 
       function setEditMode(edit){
@@ -213,7 +239,7 @@
         agentPromptEl.value = '';
         const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
-          const res = await fetch('/agent/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: text, history }) });
+          const res = await fetch('/agent/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: text, history, order_id: orderId }) });
           const data = await res.json();
           const msg = toHumanReadable(data);
           bot.textContent = msg;

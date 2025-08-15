@@ -20,6 +20,7 @@
       textarea { width:100%; height: 220px; border:1px solid var(--border); border-radius:10px; padding:12px; font-size:16px; color:var(--prompt-text); font-family: inherit; }
       .actions { display:flex; gap:10px; margin-top:12px; }
       button { padding:10px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
+      button:disabled { background:#9ca3af; border-color:#9ca3af; cursor:not-allowed; }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
     </style>
@@ -72,16 +73,18 @@
         } catch(e){ return null; }
       }
 
-      document.getElementById('saveNotes').onclick = async ()=>{
+      const saveBtn = document.getElementById('saveNotes');
+      saveBtn.onclick = async ()=>{
         const notes = document.getElementById('notes').value.trim();
         if(!notes){ showToast('Please enter some notes'); return; }
+        saveBtn.disabled = true; const originalText = saveBtn.textContent; saveBtn.textContent = 'Saving...';
         showToast('Processing notes...');
         try{
           await fetch('/logs/emit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'notetaker_saved', details:{ length: notes.length }, prompt: notes }) });
         }catch{}
         const orderId = await createOrderFromNotes(notes);
         if(orderId){ location.href = `/pricing/${orderId}`; }
-        else { showToast('Failed to create order'); }
+        else { showToast('Failed to create order'); saveBtn.disabled = false; saveBtn.textContent = originalText; }
       };
     </script>
   </body>

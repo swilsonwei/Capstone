@@ -18,6 +18,7 @@ from src.order_store import create_order, list_orders, update_status, get_order,
 from src.audit_log import append_log, list_logs
 from src.mcp_client import main as mcp_client_run
 import re
+import json as _json
 
 try:
     from docx import Document
@@ -69,11 +70,101 @@ async def audit_orders_calls(request: Request, call_next):
 
 # Context variable to carry the active agent prompt across tool calls
 AGENT_PROMPT: ContextVar[str | None] = ContextVar("AGENT_PROMPT", default=None)
+AGENT_ORDER_ID: ContextVar[str | None] = ContextVar("AGENT_ORDER_ID", default=None)
+def _fmt_money(amount: float | int) -> str:
+    try:
+        return f"${float(amount):,.0f}"
+    except Exception:
+        return "$0"
+
+def _shorten(text: str | None, limit: int = 200) -> str:
+    s = (text or "").strip()
+    return s[:limit] + ("…" if len(s) > limit else "")
+
+def _summarize_text(text: str | None, limit: int = 200) -> str:
+    if not text:
+        return ""
+    s = str(text).strip()
+    # Prefer the first line/sentence for quick context
+    first_line = s.splitlines()[0] if "\n" in s else s
+    # Try to break at sentence end
+    for sep in [". ", "! ", "? "]:
+        if sep in first_line and len(first_line.split(sep)[0]) >= 32:
+            first_line = first_line.split(sep)[0] + sep.strip()
+            break
+    return _shorten(first_line, limit)
+
+def _summarize_additions(additions: list) -> str:
+    try:
+        additions = additions or []
+        if not additions:
+            return "no extra items"
+        if len(additions) == 1:
+            it = additions[0]
+            name = str(it.get("item", "item")).strip() or "item"
+            cost = float(it.get("unit_cost", it.get("cost", 0)) or 0)
+            return f"added 1 item: {name} {_fmt_money(cost)}"
+        names = ", ".join(str((i.get("item") or "item")).strip() for i in additions[:3])
+        more = "" if len(additions) <= 3 else f" (+{len(additions)-3} more)"
+        return f"added {len(additions)} items: {names}{more}"
+    except Exception:
+        return "added items"
+
+def _summarize_items(items: list) -> str:
+    try:
+        items = items or []
+        subtotal = 0.0
+        for it in items:
+            q = float(it.get("quantity", 0) or 0)
+            c = float(it.get("unit_cost", it.get("cost", 0)) or 0)
+            subtotal += q * c
+        return f"updated {len(items)} items; subtotal {_fmt_money(subtotal)}"
+    except Exception:
+        return "items updated"
+
+def _summarize_agent_result(result: object) -> str:
+    # Try to produce a compact human summary from agent output
+    try:
+        text = result if isinstance(result, str) else _json.dumps(result)
+    except Exception:
+        text = str(result)
+    # Try JSON
+    try:
+        data = _json.loads(text) if isinstance(text, str) else result
+        if isinstance(data, dict):
+            created = data.get("created_id") or (data.get("order") or {}).get("id")
+            updated = data.get("updated_ids") or []
+            actions = data.get("actions") or []
+            notes = data.get("notes")
+            parts: list[str] = []
+            if created:
+                parts.append(f"created order {created}")
+            if updated:
+                parts.append(f"updated {len(updated)} order(s)")
+            if actions:
+                parts.append(", ".join(actions))
+            if notes and not parts:
+                parts.append(str(notes))
+            if parts:
+                return "; ".join(parts)
+    except Exception:
+        pass
+    # Fallback: extract OD- ids and a short snippet
+    try:
+        m = re.findall(r"OD-\d{5}", text)
+        lead = text.strip().splitlines()[0][:140] if isinstance(text, str) else str(text)[:140]
+        if m:
+            return f"agent action on {', '.join(sorted(set(m)))}: {lead}"
+        return lead
+    except Exception:
+        return "agent action executed"
 
 # Global prompt cache to bridge across separate HTTP requests initiated by the agent
 LAST_AGENT_PROMPT: str | None = None
 LAST_AGENT_PROMPT_TS: float = 0.0
 PROMPT_TTL_SECONDS: float = 300.0
+LAST_AGENT_ORDER_ID: str | None = None
+LAST_AGENT_ORDER_ID_TS: float = 0.0
 
 def remember_agent_prompt(prompt: Optional[str]) -> None:
     global LAST_AGENT_PROMPT, LAST_AGENT_PROMPT_TS
@@ -85,6 +176,20 @@ def recent_agent_prompt() -> Optional[str]:
     try:
         if LAST_AGENT_PROMPT and (time() - LAST_AGENT_PROMPT_TS) <= PROMPT_TTL_SECONDS:
             return LAST_AGENT_PROMPT
+    except Exception:
+        pass
+    return None
+
+def remember_agent_order_id(order_id: Optional[str]) -> None:
+    global LAST_AGENT_ORDER_ID, LAST_AGENT_ORDER_ID_TS
+    if order_id:
+        LAST_AGENT_ORDER_ID = str(order_id)
+        LAST_AGENT_ORDER_ID_TS = time()
+
+def recent_agent_order_id() -> Optional[str]:
+    try:
+        if LAST_AGENT_ORDER_ID and (time() - LAST_AGENT_ORDER_ID_TS) <= PROMPT_TTL_SECONDS:
+            return LAST_AGENT_ORDER_ID
     except Exception:
         pass
     return None
@@ -214,6 +319,7 @@ async def sow_form():
 class AgentRunRequest(BaseModel):
     prompt: str = Field(..., description="Prompt to run through the MCP agent")
     history: list | None = Field(default=None, description="Optional conversation history: [{role, content}]")
+    order_id: Optional[str] = Field(default=None, description="Current order context. Default for tools if user says 'this order'.")
 
 
 @app.post("/agent/run")
@@ -233,7 +339,9 @@ async def agent_run(req: AgentRunRequest):
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
             "- For 'clone then add items' flows: call clone_order → fetch items (pricing_data) → save merged items (pricing_save) or call add_items_to_order when available.\n"
-            '- Respond with a concise JSON summary, e.g.: {updated_ids:[...], created_id:"", actions:["listed","updated"], notes:""}.\n'
+            f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
+            "- Output style: Write for end users in brief, readable sentences or 2–6 short bullets. Avoid code blocks and JSON unless explicitly requested.\n"
+            "  Present key figures clearly (e.g., Today total: $X; Yesterday total: $Y), then 1–3 bullets with highlights. Use US currency formatting.\n"
         )
         # Build conversational context from history
         convo = []
@@ -250,27 +358,38 @@ async def agent_run(req: AgentRunRequest):
 
         # Set prompt context for downstream tool calls
         prompt_token = AGENT_PROMPT.set(req.prompt)
+        order_token = None
+        if req.order_id:
+            order_token = AGENT_ORDER_ID.set(req.order_id)
         # Persist full reasoning context (tool guide + conversation) for downstream audit logging
         remember_agent_prompt(combined_prompt)
+        remember_agent_order_id(req.order_id)
 
         # Log start (store full reasoning context in prompt)
         append_log({"type": "agent_run_start", "prompt": combined_prompt})
 
         result = await agent.run(combined_prompt)
+        # Derive concise summary for audit prompt
+        action_summary = _summarize_text(_summarize_agent_result(result), 200)
         append_log({
             "type": "agent_run",
-            "prompt": combined_prompt,
+            "prompt": action_summary,
             "tokens_output": int(max(1, len(str(result))//4)),
             "result": result,
         })
         return {"result": result}
     except Exception as e:
-        append_log({"type": "agent_run_error", "prompt": combined_prompt if 'combined_prompt' in locals() else req.prompt, "error": str(e)})
+        append_log({"type": "agent_run_error", "prompt": (action_summary if 'action_summary' in locals() else (combined_prompt if 'combined_prompt' in locals() else req.prompt)), "error": str(e)})
         return JSONResponse(status_code=400, content={"error": str(e)})
     finally:
         try:
             # Reset context to avoid leaking prompt across requests
             AGENT_PROMPT.reset(prompt_token)
+        except Exception:
+            pass
+        try:
+            if 'order_token' in locals() and order_token is not None:
+                AGENT_ORDER_ID.reset(order_token)
         except Exception:
             pass
 
@@ -356,6 +475,29 @@ async def index_order_in_milvus(order: Dict) -> None:
                 "type": "order_indexed_milvus",
                 "order_id": order_id,
                 "details": {"items_indexed": len(tasks)},
+            })
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+async def index_notes_in_milvus(order_id: str, notes: str, source: str = "notetaker") -> None:
+    """Chunk and index freeform notes/transcripts so the agent can retrieve evidence later."""
+    if not notes or not order_id:
+        return
+    try:
+        ensure_collection_exists()
+    except Exception:
+        pass
+    try:
+        chunks = _chunk_text(notes, chunk_size=800, chunk_overlap=120)
+        tasks = [add_document(chunk, f"{order_id}:notes", idx, source) for idx, chunk in enumerate(chunks)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            append_log({
+                "type": "notes_indexed_milvus",
+                "order_id": order_id,
+                "details": {"chunks": len(chunks)},
             })
         except Exception:
             pass
@@ -683,6 +825,10 @@ async def notetaker_ingest(body: NotetakerIngest):
                 "prompt": notes,
                 "tool_name": "notetaker_ingest",
             })
+            try:
+                asyncio.create_task(index_notes_in_milvus(order_id, notes))
+            except Exception:
+                pass
             return {"ok": True, "order_id": order_id, "pricing_url": f"/pricing/{order_id}"}
         append_log({
             "type": "notetaker_ingest_error",

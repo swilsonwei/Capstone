@@ -249,6 +249,23 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
             break
     if not target:
         return None
+    # Guardrail: block edits for Sent/Received
+    try:
+        if str(target.get("status")) in ("Sent", "Received"):
+            try:
+                from src.audit_log import append_log
+                append_log({
+                    "type": "order_items_update_blocked",
+                    "order_id": order_id,
+                    "details": {"reason": "read-only status", "status": target.get("status")},
+                    "prompt": prompt,
+                    "tool_name": tool_name,
+                })
+            except Exception:
+                pass
+            return None
+    except Exception:
+        pass
     # normalize numbers and compute subtotal
     normalized = []
     subtotal = 0.0
