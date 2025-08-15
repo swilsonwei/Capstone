@@ -56,8 +56,8 @@
     </div>
     <div class="container">
       <nav class="tabs">
-        <a class="tab" href="/agent">Home</a>
-        <a class="tab" href="/">CPQ</a>
+        <a class="tab" href="/">Home</a>
+        <a class="tab" href="/cpq">CPQ</a>
         <a class="tab active" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
@@ -77,16 +77,16 @@
           </form>
           <h3>Ingest Result</h3>
           <div id="tableWrap" style="color: var(--prompt-text)"></div>
-          <pre id="ingestResult" style="color: var(--prompt-text)">(no result yet)</pre>
+          <pre id="ingestResult" style="color: var(--prompt-text)"></pre>
           <button id="openPdf" style="display:none">Open PDF Preview</button>
         </div>
         <div class="card sticky">
           <h2>Run Agent</h2>
           <h3>Result</h3>
-          <pre id="result" style="max-height:340px;overflow:auto">(no result yet)</pre>
+          <pre id="result" style="max-height:340px;overflow:auto"></pre>
           <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
-            <textarea id="prompt" style="width:100%;height:120px">Say hello and list the available MCP tools.</textarea>
+            <textarea id="prompt" style="width:100%;height:120px">Say hello!</textarea>
           </div>
           <div class="row">
             <button id="run">Run Agent</button>

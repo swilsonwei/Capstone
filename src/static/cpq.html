@@ -180,8 +180,8 @@
     </div>
     <div class="container">
       <nav class="tabs">
-        <a class="tab" href="/agent">Home</a>
-        <a class="tab active" href="/">CPQ</a>
+        <a class="tab" href="/">Home</a>
+        <a class="tab active" href="/cpq">CPQ</a>
         <a class="tab" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
@@ -205,19 +205,17 @@
           </form>
           <h3 style="margin-top:14px">Ingest Result</h3>
           <div id="tableWrap" style="color: var(--prompt-text)"></div>
-          <pre id="ingestResult" style="color: var(--prompt-text)">(no result yet)</pre>
+          <pre id="ingestResult" style="color: var(--prompt-text)"></pre>
           <div id="pricingLink" style="margin-top:8px"></div>
         </div>
 
         <div class="card sticky">
           <h2>Run Agent</h2>
           <h3 style="margin-top:0">Result</h3>
-          <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit">
-            <div class="bubble bot">(no result yet)</div>
-          </div>
+          <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit"></div>
           <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
-            <textarea id="prompt">Say hello and list the available MCP tools.</textarea>
+            <textarea id="prompt">Say hello!</textarea>
           </div>
           <div class="row actions">
             <button id="run">Run Agent</button>
@@ -322,7 +320,7 @@
           showToast('Agent completed');
         } catch (e) {
           bot.textContent = 'Error: ' + e;
-          alertEl.textContent = 'Agent error: ' + e; alertEl.style.display='block';
+          alertEl.textContent = 'Upload error: ' + e; alertEl.style.display='block';
         }
       });
 
@@ -413,5 +411,6 @@
     </script>
   </body>
   </html>
+
 
 

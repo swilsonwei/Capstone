@@ -6,7 +6,7 @@
     <style>
       * { box-sizing: border-box; }
       :root { --bg:#f6f7fb; --surface:#fff; --text:#0f172a; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --accent-600:#1d4ed8; --accent-700:#1e40af; --table-header:#f1f5f9; --shadow-sm:0 1px 2px rgba(16,24,40,.06); --shadow-md:0 6px 14px rgba(16,24,40,.08); --prompt-text:#000000 }
-      [data-theme="dark"] { --bg:#0b1220; --surface:#0f172a; --text:#e5e7eb; --muted:#97a3b6; --border:#1f2937; --accent:#22d3ee; --accent-600:#06b6d4; --accent-700:#0891b2; --table-header:#0b1220; --prompt-text:#000000 }
+      [data-theme="dark"] { --bg:#0b1220; --surface:#0f172a; --text:#e5e7eb; --muted:#97a3b6; --border:#1f2937; --accent:#22d3ee; --accent-600:#06b6d4; --accent-700:#0891b2; --table-header:#0b1220; --shadow-sm:0 1px 2px rgba(16,24,40,.06); --shadow-md:0 6px 14px rgba(16,24,40,.08); --prompt-text:#000000 }
       body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); margin:0; }
       .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm); }
       .topbar .inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
@@ -35,6 +35,17 @@
       pre {
         background:#fafafa; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:16px; line-height:1.45; max-height:280px; overflow:auto; width:100%; color:var(--prompt-text); font-weight: 400; font-family: inherit;
       }
+      /* Align Orders Run Agent UI with CPQ */
+      .chat { display:flex; flex-direction:column; gap:8px; }
+      .chat-scroll { max-height:340px; overflow:auto; }
+      .bubble { max-width:80%; padding:10px 12px; border-radius:14px; box-shadow: var(--shadow-sm); font-weight:400; }
+      .bubble.user { margin-left:auto; background:#e0e7ff; color:#1e1b4b; }
+      .bubble.bot { margin-right:auto; background:#f1f5f9; color: var(--prompt-text); }
+      .thinking { width:36px; height:12px; display:inline-flex; align-items:center; justify-content:space-between; }
+      .thinking span { width:6px; height:6px; background: var(--muted); border-radius:999px; display:inline-block; animation: bounce 1.2s infinite ease-in-out; }
+      .thinking span:nth-child(2){ animation-delay:.15s; }
+      .thinking span:nth-child(3){ animation-delay:.3s; }
+      @keyframes bounce { 0%,80%,100% { transform: translateY(0); opacity:.5 } 40% { transform: translateY(-6px); opacity:1 } }
     </style>
   </head>
   <body>
@@ -48,8 +59,8 @@
     </div>
     <div class="container">
       <nav class="tabs">
-        <a class="tab" href="/agent">Home</a>
-        <a class="tab" href="/">CPQ</a>
+        <a class="tab" href="/">Home</a>
+        <a class="tab" href="/cpq">CPQ</a>
         <a class="tab" href="/rfps">RFP's</a>
         <a class="tab active" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
@@ -75,10 +86,10 @@
         <div class="card sticky">
           <h2>Run Agent</h2>
           <h3>Result</h3>
-          <pre id="result" style="max-height:340px;overflow:auto">(no result yet)</pre>
+          <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit"></div>
           <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
-            <textarea id="prompt" style="width:100%;height:120px">Say hello and list the available MCP tools.</textarea>
+            <textarea id="prompt" style="width:100%;height:120px">Say hello!</textarea>
           </div>
           <div class="row">
             <button id="run">Run Agent</button>
@@ -148,13 +159,14 @@
 
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
-      const resultEl = document.getElementById('result');
+      const chatEl = document.getElementById('chat');
       let history = [];
       runBtn.addEventListener('click', async () => {
-        const text = promptEl.value; promptEl.value = '';
-        const user = `You: ${text}\n`;
-        resultEl.textContent += user;
+        const text = promptEl.value;
+        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
         history.push({ role: 'user', content: text });
+        promptEl.value = '';
+        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
@@ -163,10 +175,10 @@
           });
           const data = await res.json();
           const msg = toHumanReadable(data);
-          resultEl.textContent += `Assistant: ${msg}\n`;
+          bot.textContent = msg;
           history.push({ role: 'assistant', content: msg });
         } catch (e) {
-          resultEl.textContent += 'Error: ' + e + '\n';
+          bot.textContent = 'Error: ' + e;
         }
       });
     </script>

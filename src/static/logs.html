@@ -38,8 +38,8 @@
     </div>
     <div class="container">
       <nav class="tabs">
-        <a class="tab" href="/agent">Home</a>
-        <a class="tab" href="/">CPQ</a>
+        <a class="tab" href="/">Home</a>
+        <a class="tab" href="/cpq">CPQ</a>
         <a class="tab" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
         <a class="tab active" href="/logs">Logs</a>
@@ -52,12 +52,13 @@
         <table id="logTbl">
           <thead>
             <tr>
-              <th>order_id</th>
-              <th>type</th>
-              <th>created_at</th>
-              <th>prompt</th>
-              <th>details</th>
-              <th>id</th>
+              <th>Order ID</th>
+              <th>Type</th>
+              <th>Created At</th>
+              <th>Tool Name</th>
+              <th>Prompt</th>
+              <th>Details</th>
+              <th>ID</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -78,11 +79,12 @@
           for(const lg of rows){
             const tr = document.createElement('tr');
             const createdAt = lg.created_at || lg.time || '';
-            const detailsObj = lg.details ? lg.details : Object.fromEntries(Object.entries(lg).filter(([k]) => !['id','time','created_at','order_id','type','prompt'].includes(k)));
+            const detailsObj = lg.details ? lg.details : Object.fromEntries(Object.entries(lg).filter(([k]) => !['id','time','created_at','order_id','type','prompt','tool_name'].includes(k)));
             tr.innerHTML = `
               <td>${lg.order_id||''}</td>
               <td>${lg.type||''}</td>
               <td>${createdAt}</td>
+              <td>${lg.tool_name||''}</td>
               <td>${lg.prompt ? String(lg.prompt).slice(0,200) : ''}</td>
               <td><pre>${JSON.stringify(detailsObj, null, 2)}</pre></td>
               <td>${lg.id||''}</td>

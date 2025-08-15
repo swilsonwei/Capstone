@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
@@ -57,7 +57,7 @@ def _next_id_from_supabase() -> int:
         return 0
 
 
-def create_order(source_file: str, subtotal: float, items_count: int, status: str = "Quoted", items: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
+def create_order(source_file: str, subtotal: float, items_count: int, status: str = "Quoted", items: List[Dict[str, Any]] | None = None, prompt: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any]:
     store = _ensure_store()
     # Determine next id. Prefer Supabase (shared, persistent); fallback to local JSON counter.
     next_n = _next_id_from_supabase() if _sb else 0
@@ -99,7 +99,9 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
         append_log({
             "type": "order_created",
             "order_id": order_id,
-            "details": {"source_file": source_file, "items_count": items_count, "subtotal": subtotal}
+            "details": {"source_file": source_file, "items_count": items_count, "subtotal": subtotal},
+            "prompt": prompt,
+            "tool_name": tool_name,
         })
     except Exception:
         pass
@@ -119,7 +121,7 @@ def list_orders() -> List[Dict[str, Any]]:
     return list(store.get("orders", []))
 
 
-def update_status(order_id: str, status: str, prompt: str | None = None) -> Dict[str, Any]:
+def update_status(order_id: str, status: str, prompt: str | None = None, tool_name: Optional[str] = None) -> Dict[str, Any]:
     # If Supabase is configured, check current status and update only if it changed
     if _sb:
         try:
@@ -181,6 +183,7 @@ def update_status(order_id: str, status: str, prompt: str | None = None) -> Dict
                         "order_id": order_id,
                         "details": {"status": status},
                         "prompt": prompt,
+                        "tool_name": tool_name,
                     })
                 except Exception:
                     pass
@@ -203,6 +206,7 @@ def update_status(order_id: str, status: str, prompt: str | None = None) -> Dict
                     "order_id": order_id,
                     "details": {"status": status},
                     "prompt": prompt,
+                    "tool_name": tool_name,
                 })
             except Exception:
                 pass
@@ -235,7 +239,7 @@ def get_order(order_id: str) -> Dict[str, Any] | None:
     return None
 
 
-def update_items(order_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any] | None:
     """Replace line items for the order; recompute subtotal and item count."""
     store = _ensure_store()
     target = None
@@ -295,7 +299,9 @@ def update_items(order_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any] |
         append_log({
             "type": "order_items_updated",
             "order_id": order_id,
-            "details": {"items_count": len(normalized), "subtotal": float(subtotal)}
+            "details": {"items_count": len(normalized), "subtotal": float(subtotal)},
+            "prompt": prompt,
+            "tool_name": tool_name,
         })
     except Exception:
         pass

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi_mcp import FastApiMCP
@@ -37,6 +37,34 @@ except Exception:
     canvas = None
 
 app = FastAPI()
+# Middleware to log orders-related API calls with prompt and tool_name (operation_id)
+@app.middleware("http")
+async def audit_orders_calls(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        path = request.url.path or ""
+        method = request.method
+        # Only audit orders endpoints here (write prompt/tool_name). Others already log individually.
+        if path.startswith("/orders"):
+            # Try to resolve operation_id as tool_name
+            tool = None
+            try:
+                route = request.scope.get("route")
+                tool = getattr(route, "operation_id", None) or getattr(route, "name", None)
+            except Exception:
+                tool = None
+            append_log({
+                "type": "api_call",
+                "route": path,
+                "method": method,
+                "status": getattr(response, "status_code", None),
+                "prompt": AGENT_PROMPT.get(),
+                "tool_name": tool,
+            })
+    except Exception:
+        pass
+    return response
+
 
 # Context variable to carry the active agent prompt across tool calls
 AGENT_PROMPT: ContextVar[str | None] = ContextVar("AGENT_PROMPT", default=None)
@@ -86,10 +114,14 @@ async def greet(name: str) -> Dict:
     """Greets the given name."""
     return {"message": f"Howdy, {name}!"}
 
-# Define a regular FastAPI endpoint (optional)
+# Serve Home page (Agent)
 @app.get("/")
-async def read_root():
-    return {"message": "Welcome to the FastAPI MCP server!"}
+async def home_page():
+    # Serve agent.html as the home page
+    page = static_dir / "agent.html"
+    if page.exists():
+        return FileResponse(str(page), media_type="text/html")
+    return JSONResponse(status_code=404, content={"error": "agent.html not found"})
 
 # NOTE: MCP mounting moved to the end of the file to ensure ALL routes are exposed as tools
 
@@ -221,12 +253,12 @@ async def agent_run(req: AgentRunRequest):
             pass
 
 
-@app.get("/agent")
-async def agent_page():
-    index_path = static_dir / "cpq_agent.html"
-    if index_path.exists():
-        return FileResponse(str(index_path), media_type="text/html")
-    return JSONResponse(status_code=404, content={"error": "agent.html not found"})
+@app.get("/cpq")
+async def cpq_page():
+    page = static_dir / "cpq.html"
+    if page.exists():
+        return FileResponse(str(page), media_type="text/html")
+    return JSONResponse(status_code=404, content={"error": "cpq.html not found"})
 
 
 @app.get("/rfps")
@@ -323,7 +355,8 @@ async def agent_upload(file: UploadFile = File(...)):
             "line_total": line_total,
         })
 
-    order = create_order(file.filename, subtotal, len(normalized_items), status="Quoted", items=normalized_items)
+    # Include prompt context if upload originated from an agent-run flow in the same session
+    order = create_order(file.filename, subtotal, len(normalized_items), status="Quoted", items=normalized_items, prompt=AGENT_PROMPT.get(), tool_name="agent_upload")
     append_log({
         "type": "upload_ingest",
         "file": file.filename,
@@ -535,6 +568,7 @@ async def logs_emit(body: LogEmit):
 
 class PricingUpdate(BaseModel):
     items: list
+    prompt: Optional[str] = None
 
 
 @app.get("/pricing/{order_id}")
@@ -569,7 +603,7 @@ async def pricing_data(order_id: str):
             # Best-effort: persist back if items found
             if items:
                 try:
-                    _ = update_items(order_id, items)
+                    _ = update_items(order_id, items, prompt=AGENT_PROMPT.get(), tool_name="pricing_data")
                 except Exception:
                     pass
         except Exception:
@@ -598,7 +632,8 @@ async def pricing_data(order_id: str):
 
 @app.post("/pricing/save/{order_id}")
 async def pricing_save(order_id: str, body: PricingUpdate):
-    updated = update_items(order_id, body.items or [])
+    effective_prompt = body.prompt if getattr(body, "prompt", None) else AGENT_PROMPT.get()
+    updated = update_items(order_id, (body.items or []), prompt=effective_prompt, tool_name="pricing_save")
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
     return {"ok": True, "order": updated}
@@ -631,7 +666,7 @@ async def orders_status(update: OrderStatusUpdate):
         return JSONResponse(status_code=400, content={"error": "invalid status"})
     # Use explicit prompt if provided; else fallback to current agent prompt context
     effective_prompt = update.prompt if update.prompt else AGENT_PROMPT.get()
-    updated = update_status(update.id, update.status, prompt=effective_prompt)
+    updated = update_status(update.id, update.status, prompt=effective_prompt, tool_name="update_order_status")
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
     return updated
@@ -685,6 +720,8 @@ async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
         "route": "/orders/top",
         "method": "GET",
         "status": 200,
+        "prompt": AGENT_PROMPT.get(),
+        "tool_name": "identify_orders",
     })
     return {"orders": result}
 
@@ -692,6 +729,7 @@ async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
 class CloneOrderRequest(BaseModel):
     source_order_id: str
     additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
+    prompt: Optional[str] = None
 
 
 def _to_float(value) -> float:
@@ -746,7 +784,8 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
         normalized, subtotal = _normalize_items(all_items)
 
         source_name = source.get("source_file") or f"Cloned from {payload.source_order_id}"
-        new_order = create_order(source_name, subtotal, len(normalized), status="Quoted", items=normalized)
+        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else AGENT_PROMPT.get()
+        new_order = create_order(source_name, subtotal, len(normalized), status="Quoted", items=normalized, prompt=effective_prompt, tool_name="clone_order")
 
         append_log(
             {
@@ -761,6 +800,8 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
                 "route": "/orders/clone",
                 "method": "POST",
                 "status": 200,
+                "prompt": effective_prompt,
+                "tool_name": "clone_order",
             }
         )
         return {"order": new_order}
@@ -772,6 +813,7 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
 class AddItemsRequest(BaseModel):
     order_id: str
     additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
+    prompt: Optional[str] = None
 
 
 @app.post("/orders/add_items", operation_id="add_items_to_order")
@@ -784,13 +826,16 @@ async def add_items_to_order(payload: AddItemsRequest) -> Dict:
         base_items = list(existing.get("items", []))
         add_items, _ = _normalize_items(payload.additions)
         merged = base_items + add_items
-        updated = update_items(payload.order_id, merged)
+        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else AGENT_PROMPT.get()
+        updated = update_items(payload.order_id, merged, prompt=effective_prompt, tool_name="add_items_to_order")
         if not updated:
             return JSONResponse(status_code=400, content={"error": "failed to update items"})
         append_log({
             "type": "order_items_added",
             "order_id": payload.order_id,
             "details": {"added": add_items, "new_items_count": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)},
+            "prompt": effective_prompt,
+            "tool_name": "add_items_to_order",
         })
         return {"order": updated}
     except Exception as e:
@@ -801,6 +846,7 @@ class CreateVariantRequest(BaseModel):
     source_order_id: str = Field(..., description="Existing order id to clone from")
     additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
     status: str = Field(default="Quoted", description="Status for the new order (Quoted|Sent|Received)")
+    prompt: Optional[str] = None
 
 
 @app.post("/orders/variant", operation_id="create_variant_order")
@@ -822,7 +868,8 @@ async def create_variant_order(payload: CreateVariantRequest) -> Dict:
         normalized, subtotal = _normalize_items(combined)
 
         source_name = source.get("source_file") or f"Variant of {payload.source_order_id}"
-        new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized)
+        effective_prompt = payload.prompt if getattr(payload, "prompt", None) else AGENT_PROMPT.get()
+        new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized, prompt=effective_prompt, tool_name="create_variant_order")
 
         append_log(
             {
@@ -838,6 +885,8 @@ async def create_variant_order(payload: CreateVariantRequest) -> Dict:
                 "route": "/orders/variant",
                 "method": "POST",
                 "status": 200,
+                "prompt": effective_prompt,
+                "tool_name": "create_variant_order",
             }
         )
         return {"order": new_order}
