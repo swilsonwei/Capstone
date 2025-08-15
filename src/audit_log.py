@@ -45,8 +45,8 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
     """Append an audit log entry (Supabase if configured, else JSON)."""
     entry = dict(entry or {})
 
-    # Write to Supabase first, if available AND an order_id is present
-    if _sb and entry.get("order_id"):
+    # Write to Supabase first, if available (order_id optional)
+    if _sb:
         try:
             # Map known keys to columns; pass extra context to details jsonb
             # Only include columns that exist in your audit_logs table schema

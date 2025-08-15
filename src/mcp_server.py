@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi_mcp import FastApiMCP
 from typing import Dict, Optional
 from contextvars import ContextVar
+from time import time
 from datetime import datetime
 from pydantic import BaseModel, Field
 from src.milvus_connector import search_similar_documents, add_document, ensure_collection_exists
@@ -58,7 +59,7 @@ async def audit_orders_calls(request: Request, call_next):
                 "route": path,
                 "method": method,
                 "status": getattr(response, "status_code", None),
-                "prompt": AGENT_PROMPT.get(),
+                "prompt": (AGENT_PROMPT.get() or recent_agent_prompt()),
                 "tool_name": tool,
             })
     except Exception:
@@ -68,6 +69,25 @@ async def audit_orders_calls(request: Request, call_next):
 
 # Context variable to carry the active agent prompt across tool calls
 AGENT_PROMPT: ContextVar[str | None] = ContextVar("AGENT_PROMPT", default=None)
+
+# Global prompt cache to bridge across separate HTTP requests initiated by the agent
+LAST_AGENT_PROMPT: str | None = None
+LAST_AGENT_PROMPT_TS: float = 0.0
+PROMPT_TTL_SECONDS: float = 300.0
+
+def remember_agent_prompt(prompt: Optional[str]) -> None:
+    global LAST_AGENT_PROMPT, LAST_AGENT_PROMPT_TS
+    if prompt:
+        LAST_AGENT_PROMPT = str(prompt)
+        LAST_AGENT_PROMPT_TS = time()
+
+def recent_agent_prompt() -> Optional[str]:
+    try:
+        if LAST_AGENT_PROMPT and (time() - LAST_AGENT_PROMPT_TS) <= PROMPT_TTL_SECONDS:
+            return LAST_AGENT_PROMPT
+    except Exception:
+        pass
+    return None
 
 class AddDocumentRequest(BaseModel):
     text: str = Field(..., description="Document text to add")
@@ -230,6 +250,7 @@ async def agent_run(req: AgentRunRequest):
 
         # Set prompt context for downstream tool calls
         prompt_token = AGENT_PROMPT.set(req.prompt)
+        remember_agent_prompt(req.prompt)
 
         # Log start (disable streamed execution to avoid duplicate tool runs)
         append_log({"type": "agent_run_start", "prompt": req.prompt})
@@ -269,6 +290,14 @@ async def rfps_page():
     return JSONResponse(status_code=404, content={"error": "rfps.html not found"})
 
 
+@app.get("/notetaker")
+async def notetaker_page():
+    page = static_dir / "notetaker.html"
+    if page.exists():
+        return FileResponse(str(page), media_type="text/html")
+    return JSONResponse(status_code=404, content={"error": "notetaker.html not found"})
+
+
 @app.get("/orders")
 async def orders_page():
     page = static_dir / "orders.html"
@@ -289,6 +318,48 @@ def _chunk_text(text: str, chunk_size: int = 1200, chunk_overlap: int = 200):
         start = max(end - chunk_overlap, start + 1)
     return chunks
 
+
+async def index_order_in_milvus(order: Dict) -> None:
+    """Index a newly created order into Milvus as retrieval data for the LLM."""
+    try:
+        ensure_collection_exists()
+    except Exception:
+        pass
+    try:
+        order_id = order.get("id") or ""
+        source = order.get("source_file", "order")
+        items = order.get("items", []) or []
+        subtotal = float(order.get("subtotal", 0) or 0)
+        status = order.get("status") or "Quoted"
+        header = (
+            f"Order {order_id} | source: {source} | status: {status} | "
+            f"items: {len(items)} | subtotal: ${subtotal:,.0f}"
+        )
+        tasks = [add_document(header, order_id, 0, source)]
+        for idx, it in enumerate(items, start=1):
+            name = str(it.get("item", "")).strip()
+            try:
+                qty = float(it.get("quantity", 0) or 0)
+            except Exception:
+                qty = 0.0
+            try:
+                unit = float(it.get("unit_cost", it.get("cost", 0)) or 0)
+            except Exception:
+                unit = 0.0
+            line_total = float(it.get("line_total", qty * unit) or 0)
+            line = f"{name} | qty {qty:g} | unit ${unit:,.0f} | total ${line_total:,.0f}"
+            tasks.append(add_document(line, order_id, idx, source))
+        await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            append_log({
+                "type": "order_indexed_milvus",
+                "order_id": order_id,
+                "details": {"items_indexed": len(tasks)},
+            })
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 @app.post("/agent/upload")
 async def agent_upload(file: UploadFile = File(...)):
@@ -356,7 +427,15 @@ async def agent_upload(file: UploadFile = File(...)):
         })
 
     # Include prompt context if upload originated from an agent-run flow in the same session
-    order = create_order(file.filename, subtotal, len(normalized_items), status="Quoted", items=normalized_items, prompt=AGENT_PROMPT.get(), tool_name="agent_upload")
+    order = create_order(
+        file.filename,
+        subtotal,
+        len(normalized_items),
+        status="Quoted",
+        items=normalized_items,
+        prompt=(AGENT_PROMPT.get() or recent_agent_prompt()),
+        tool_name="agent_upload",
+    )
     append_log({
         "type": "upload_ingest",
         "file": file.filename,
@@ -366,6 +445,10 @@ async def agent_upload(file: UploadFile = File(...)):
         "items_count": len(normalized_items),
         "subtotal": subtotal,
     })
+    try:
+        asyncio.create_task(index_order_in_milvus(order))
+    except Exception:
+        pass
     # Kick off MCP client asynchronously for post-upload quote generation
     try:
         asyncio.create_task(mcp_client_run())
@@ -804,6 +887,10 @@ async def clone_order(payload: CloneOrderRequest) -> Dict:
                 "tool_name": "clone_order",
             }
         )
+        try:
+            asyncio.create_task(index_order_in_milvus(new_order))
+        except Exception:
+            pass
         return {"order": new_order}
     except Exception as e:
         append_log({"type": "order_clone_error", "details": {"error": str(e), "payload": payload.dict()}})
@@ -889,6 +976,10 @@ async def create_variant_order(payload: CreateVariantRequest) -> Dict:
                 "tool_name": "create_variant_order",
             }
         )
+        try:
+            asyncio.create_task(index_order_in_milvus(new_order))
+        except Exception:
+            pass
         return {"order": new_order}
     except Exception as e:
         append_log({"type": "order_variant_error", "details": {"error": str(e), "payload": payload.dict()}})

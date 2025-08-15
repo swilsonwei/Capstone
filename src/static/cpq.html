@@ -172,17 +172,14 @@
     <div class="topbar">
       <div class="inner">
         <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
-        <div class="top-actions">
-          <button class="icon-btn" id="themeBtn" title="Toggle theme">🌓</button>
-          <button class="icon-btn" id="helpBtn" title="Help">❓</button>
-        </div>
+        <div class="top-actions"></div>
       </div>
     </div>
     <div class="container">
       <nav class="tabs">
         <a class="tab" href="/">Home</a>
+        <a class="tab" href="/notetaker">Notetaker</a>
         <a class="tab active" href="/cpq">CPQ</a>
-        <a class="tab" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
       </nav>
@@ -211,7 +208,7 @@
 
         <div class="card sticky">
           <h2>Run Agent</h2>
-          <h3 style="margin-top:0">Result</h3>
+          
           <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit"></div>
           <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
@@ -248,9 +245,9 @@
       const alertEl = document.getElementById('alert');
       const toasts = document.getElementById('toasts');
       const themeBtn = document.getElementById('themeBtn');
-
+      
       // Theme toggle
-      themeBtn.onclick = ()=>{
+      if (themeBtn) themeBtn.onclick = ()=>{
         const d = document.documentElement;
         d.setAttribute('data-theme', d.getAttribute('data-theme')==='dark' ? 'light' : 'dark');
         showToast('Theme updated');

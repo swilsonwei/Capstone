@@ -27,6 +27,8 @@
       .actions { display:flex; gap:10px; margin-top:12px; }
       button { padding:10px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
       button.secondary { background:#fff; color:var(--accent); }
+      .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
+      .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
       /* Agent chat UI (match CPQ/Orders) */
       .chat { display:flex; flex-direction:column; gap:8px; }
       .chat-scroll { max-height:340px; overflow:auto; }
@@ -44,14 +46,12 @@
     <div class="topbar">
       <div class="inner">
         <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
-        <div class="top-actions">
-          <button class="icon-btn" id="themeBtn" title="Toggle theme">🌓</button>
-        </div>
+        <div class="top-actions"></div>
       </div>
     </div>
     <div class="container">
       <div class="breadcrumbs">
-        <a href="/cpq">← Back to CPQ</a> &nbsp;|&nbsp; <a href="/orders">Orders</a>
+        <a href="/cpq">← Back to CPQ</a> &nbsp;|&nbsp; <a href="/orders">Orders</a> &nbsp;|&nbsp; <a href="/notetaker">Notetaker</a>
       </div>
       <div class="card">
         <h2>Pricing</h2>
@@ -68,14 +68,14 @@
           <tbody></tbody>
         </table>
         <div class="actions">
-          <button id="save">Save</button>
-          <button id="cancel" class="secondary">Cancel</button>
+          <button id="edit" class="secondary">Edit</button>
+          <button id="save" style="display:none">Save</button>
+          <button id="cancel" class="secondary" style="display:none">Cancel</button>
         </div>
       </div>
 
       <div class="card" style="margin-top:16px">
         <h2>Run Agent</h2>
-        <h3 style="margin-top:0">Result</h3>
         <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit"></div>
         <div class="row" style="margin-top:12px">
           <label for="agentPrompt">Prompt</label>
@@ -86,11 +86,28 @@
         </div>
       </div>
     </div>
+    <div class="toasts" id="toasts"></div>
     <script>
       const orderId = location.pathname.split('/').pop();
       const tbody = document.querySelector('#tbl tbody');
       const meta = document.getElementById('meta');
       let original = null;
+      let isEditing = false;
+
+      function showToast(msg){
+        const toasts = document.getElementById('toasts');
+        if (!toasts) return;
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.textContent = msg;
+        toasts.appendChild(t);
+        setTimeout(()=>{ t.remove(); }, 2200);
+      }
+
+      function formatMoneyNoDecimals(n){
+        const val = Number(n||0);
+        return `$${val.toLocaleString('en-US', { maximumFractionDigits: 0, minimumFractionDigits: 0 })}`;
+      }
 
       function row(item){
         const tr = document.createElement('tr');
@@ -98,13 +115,13 @@
           <td><input type="text" value="${item.item||''}" /></td>
           <td><input type="number" step="0.01" value="${Number(item.quantity||0)}" /></td>
           <td><input type="number" step="0.01" value="${Number(item.unit_cost||0)}" /></td>
-          <td class="total">$${Number(item.line_total||0).toFixed(2)}</td>
+          <td class="total">${formatMoneyNoDecimals(item.line_total||0)}</td>
         `;
         const [iName, iQty, iCost] = tr.querySelectorAll('input');
         function recalc(){
           const qty = parseFloat(iQty.value||'0')||0;
           const cost = parseFloat(iCost.value||'0')||0;
-          tr.querySelector('.total').textContent = `$${(qty*cost).toFixed(2)}`;
+          tr.querySelector('.total').textContent = formatMoneyNoDecimals(qty*cost);
         }
         iQty.addEventListener('input', recalc);
         iCost.addEventListener('input', recalc);
@@ -116,12 +133,31 @@
         const data = await res.json();
         const o = data.order;
         original = JSON.parse(JSON.stringify(o));
-        meta.textContent = `Order ${o.id} — Source: ${o.source_file} — Subtotal: $${Number(o.subtotal||0).toFixed(2)}`;
+        meta.textContent = `Order ${o.id} — Source: ${o.source_file} — Subtotal: ${formatMoneyNoDecimals(o.subtotal||0)}`;
         tbody.innerHTML='';
         for(const it of (o.items||[])) tbody.appendChild(row(it));
+        setEditMode(false);
       }
 
-      document.getElementById('cancel').onclick = ()=>{ load(); };
+      function setEditMode(edit){
+        isEditing = !!edit;
+        const saveBtn = document.getElementById('save');
+        const cancelBtn = document.getElementById('cancel');
+        const editBtn = document.getElementById('edit');
+        if (isEditing){
+          saveBtn.style.display = '';
+          cancelBtn.style.display = '';
+          editBtn.style.display = 'none';
+        } else {
+          saveBtn.style.display = 'none';
+          cancelBtn.style.display = 'none';
+          editBtn.style.display = '';
+        }
+        for (const inp of tbody.querySelectorAll('input')){ inp.disabled = !isEditing; }
+      }
+
+      document.getElementById('edit').onclick = ()=>{ setEditMode(true); };
+      document.getElementById('cancel').onclick = async ()=>{ await load(); setEditMode(false); };
       document.getElementById('save').onclick = async ()=>{
         const items=[];
         for(const tr of tbody.querySelectorAll('tr')){
@@ -131,11 +167,11 @@
         const res = await fetch(`/pricing/save/${orderId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items }) });
         const data = await res.json();
         if(data && data.ok){
-          // Reload to show recomputed totals
           await load();
-          alert('Saved');
+          setEditMode(false);
+          showToast('Saved');
         } else {
-          alert('Save failed');
+          showToast('Save failed');
         }
       };
 

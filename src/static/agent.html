@@ -83,17 +83,14 @@
     <div class="topbar">
       <div class="inner">
         <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
-        <div class="top-actions">
-          <button class="icon-btn" id="themeBtn" title="Toggle theme">🌓</button>
-          <button class="icon-btn" id="helpBtn" title="Help">❓</button>
-        </div>
+        <div class="top-actions"></div>
       </div>
     </div>
     <div class="container">
       <nav class="tabs">
         <a class="tab active" href="/">Home</a>
+        <a class="tab" href="/notetaker">Notetaker</a>
         <a class="tab" href="/cpq">CPQ</a>
-        <a class="tab" href="/rfps">RFP's</a>
         <a class="tab" href="/orders">Orders</a>
         <a class="tab" href="/logs">Logs</a>
       </nav>
@@ -126,7 +123,6 @@
         </div>
         <div class="card sticky">
           <h2>Run Agent</h2>
-          <h3>Result</h3>
           <div id="chat" class="chat chat-scroll" style="color:var(--prompt-text)"></div>
           <div class="row" style="margin-top:12px">
             <label for="prompt">Prompt</label>
@@ -148,7 +144,7 @@
       const chatEl = document.getElementById('chat');
       let history = [];
       function showToast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; toasts.appendChild(t); setTimeout(()=>t.remove(), 2400); }
-      themeBtn.onclick = ()=>{ const d=document.documentElement; d.setAttribute('data-theme', d.getAttribute('data-theme')==='dark'?'light':'dark'); showToast('Theme updated'); };
+      if (themeBtn) themeBtn.onclick = ()=>{ const d=document.documentElement; d.setAttribute('data-theme', d.getAttribute('data-theme')==='dark'?'light':'dark'); showToast('Theme updated'); };
       function safeParseJSON(str){
         if (typeof str !== 'string') return null;
         try { return JSON.parse(str); } catch { return null; }
