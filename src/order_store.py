@@ -68,6 +68,7 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
     order = {
         "id": order_id,
         "source_file": source_file,
+        "customers": "",
         "items_count": int(items_count or 0),
         "subtotal": float(subtotal or 0.0),
         "status": status,
@@ -331,6 +332,71 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
     except Exception:
         pass
     return target
+
+
+def update_customer(order_id: str, customers: str, prompt: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any] | None:
+    """Update the customer name for an order (both Supabase and local cache)."""
+    # Supabase-first
+    if _sb:
+        try:
+            _sb.table("orders").update({"customers": customers}).eq("id", order_id).execute()
+            resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
+            sb_order = (resp.data or [])[0] if hasattr(resp, "data") and resp.data else None
+            if sb_order:
+                # Sync local cache
+                store = _ensure_store()
+                target = None
+                for o in store.get("orders", []):
+                    if o.get("id") == order_id:
+                        o["customers"] = customers
+                        target = o
+                        break
+                if target is None:
+                    target = {
+                        "id": sb_order.get("id"),
+                        "source_file": sb_order.get("source_file", ""),
+                        "customers": customers,
+                        "items_count": int(sb_order.get("items_count", 0) or 0),
+                        "subtotal": float(sb_order.get("subtotal", 0) or 0.0),
+                        "status": sb_order.get("status", "Quoted"),
+                        "created_at": sb_order.get("created_at") or datetime.utcnow().isoformat() + "Z",
+                        "items": sb_order.get("items") or [],
+                    }
+                    store.setdefault("orders", []).append(target)
+                _save_store(store)
+                try:
+                    from src.audit_log import append_log
+                    append_log({
+                        "type": "order_customer_updated",
+                        "order_id": order_id,
+                        "details": {"customers": customers},
+                        "prompt": prompt,
+                        "tool_name": tool_name,
+                    })
+                except Exception:
+                    pass
+                return target
+        except Exception:
+            pass
+    # Local-only fallback
+    store = _ensure_store()
+    for o in store.get("orders", []):
+        if o.get("id") == order_id:
+            o["customers"] = customers
+            _save_store(store)
+            try:
+                from src.audit_log import append_log
+                append_log({
+                    "type": "order_customer_updated",
+                    "order_id": order_id,
+                    "details": {"customers": customers},
+                    "prompt": prompt,
+                    "tool_name": tool_name,
+                })
+            except Exception:
+                pass
+            return o
+    return None
 
 
 def delete_order(order_id: str) -> bool:

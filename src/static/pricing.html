@@ -50,12 +50,12 @@
     </style>
   </head>
   <body>
+    <script async crossorigin="anonymous" data-clerk-publishable-key="pk_test_YW1wbGUtd3Jlbi02LmNsZXJrLmFjY291bnRzLmRldiQ" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"></script>
     <div class="topbar">
       <div class="inner">
         <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
         <div class="top-actions"></div>
       </div>
-      <div class="footer">© 2025 CPQ Platform</div>
     </div>
     <div class="container">
       <div class="breadcrumbs">
@@ -93,6 +93,7 @@
           <button id="runAgent">Run Agent</button>
         </div>
       </div>
+      <div class="footer">© 2025 CPQ Platform</div>
     </div>
     <div class="toasts" id="toasts"></div>
     <script>
@@ -101,6 +102,17 @@
       const meta = document.getElementById('meta');
       let original = null;
       let isEditing = false;
+
+      async function authHeaders(){
+        try{
+          if (window.Clerk){
+            await window.Clerk.load();
+            const token = await window.Clerk.session?.getToken();
+            if (token) return { 'Authorization': 'Bearer ' + token, 'Clerk-Session': token };
+          }
+        }catch{}
+        return {};
+      }
 
       function showToast(msg){
         const toasts = document.getElementById('toasts');
@@ -137,14 +149,15 @@
       }
 
       async function load(){
-        const res = await fetch(`/pricing/data/${orderId}`);
+        const headers = await authHeaders();
+        const res = await fetch(`/pricing/data/${orderId}`, { headers });
         const data = await res.json();
         let o = data.order;
         // If items are missing but items_count suggests otherwise, proactively request backend to rehydrate
         if ((!o.items || !o.items.length) && Number(o.items_count||0) > 0){
           try {
             // Trigger server-side reconciliation by hitting pricing_data again
-            const res2 = await fetch(`/pricing/data/${orderId}`);
+            const res2 = await fetch(`/pricing/data/${orderId}`, { headers });
             const data2 = await res2.json();
             if (data2 && data2.order) o = data2.order;
           } catch {}
@@ -175,6 +188,7 @@
           notice.textContent = 'This order is read-only while in Sent or Received status.';
           document.querySelector('.card').insertBefore(notice, document.getElementById('tbl'));
         }
+        // Allow inline update of customer via agent-style command if needed
       }
 
       function setEditMode(edit){
@@ -202,7 +216,8 @@
           const [iName, iQty, iCost] = tr.querySelectorAll('input');
           items.push({ item:iName.value, quantity: parseFloat(iQty.value||'0')||0, unit_cost: parseFloat(iCost.value||'0')||0 });
         }
-        const res = await fetch(`/pricing/save/${orderId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items }) });
+        const headers = Object.assign({'Content-Type':'application/json'}, await authHeaders());
+        const res = await fetch(`/pricing/save/${orderId}`, { method:'POST', headers, body: JSON.stringify({ items }) });
         const data = await res.json();
         if(data && data.ok){
           await load();
@@ -251,7 +266,8 @@
         agentPromptEl.value = '';
         const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
         try {
-          const res = await fetch('/agent/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: text, history, order_id: orderId }) });
+          const headers = Object.assign({'Content-Type':'application/json'}, await authHeaders());
+          const res = await fetch('/agent/run', { method:'POST', headers, body: JSON.stringify({ prompt: text, history, order_id: orderId }) });
           const data = await res.json();
           const msg = toHumanReadable(data);
           bot.textContent = msg;

@@ -21,7 +21,7 @@ from src.constants import (
 )
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
-from src.order_store import create_order, list_orders, update_status, get_order, update_items
+from src.order_store import create_order, list_orders, update_status, get_order, update_items, update_customer
 from src.audit_log import append_log, list_logs
 from src.mcp_client import main as mcp_client_run
 import re
@@ -993,6 +993,7 @@ async def pricing_data(order_id: str):
         "order": {
             "id": order.get("id"),
             "source_file": order.get("source_file"),
+            "customers": order.get("customers", ""),
             "items": items,
             "subtotal": order.get("subtotal", 0),
             "status": order.get("status")
@@ -1037,6 +1038,24 @@ async def orders_status(update: OrderStatusUpdate, _auth=Depends(require_auth)):
     # Use explicit prompt if provided; else fallback to current/last agent prompt context
     effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
     updated = update_status(update.id, update.status, prompt=effective_prompt, tool_name="update_order_status")
+    if not updated:
+        return JSONResponse(status_code=404, content={"error": "order not found"})
+    return updated
+class OrderCustomerUpdate(BaseModel):
+    id: str
+    customers: str
+    prompt: Optional[str] = None
+
+
+@app.post(
+    "/orders/customer",
+    operation_id="update_order_customer",
+    summary="Update order customer name",
+    description="Body must be `{ id: string, customers: string }`. Returns the updated order."
+)
+async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_auth)):
+    effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
+    updated = update_customer(update.id, update.customers, prompt=effective_prompt, tool_name="update_order_customer")
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
     return updated

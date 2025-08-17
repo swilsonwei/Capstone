@@ -23,6 +23,9 @@
       button:disabled { background:#9ca3af; border-color:#9ca3af; cursor:not-allowed; }
       .secondary { background:#f3f4f6; color:var(--text); border-color: var(--border); }
       .secondary:disabled { opacity:.7; cursor:not-allowed; }
+      .dark { background:#374151; border-color:#374151; color:#fff; }
+      .dark:disabled { background:#6b7280; border-color:#6b7280; }
+      .below-actions { margin-top:12px; }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
       .footer { margin-top: 28px; padding: 18px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
@@ -48,9 +51,11 @@
         <label for="notes" style="display:block;color:var(--muted);font-size:13px;margin-bottom:6px">Describe the call details. Notes will be used to draft a quote.</label>
         <textarea id="notes" placeholder="Ex: Customer wants a replica of OD-00012 with weekend surcharge $500 and service fee $1500."></textarea>
         <div class="actions">
-          <button id="autoGen" class="secondary">Auto-Generate Notes</button>
           <button id="saveNotes">Save</button>
         </div>
+      </div>
+      <div class="below-actions">
+        <button id="autoGen" class="dark">Auto-Generate Notes</button>
       </div>
       <div class="footer">© 2025 CPQ Platform</div>
     </div>
@@ -96,7 +101,7 @@
       autoBtn.onclick = async ()=>{
         const btn = autoBtn; btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Generating…';
         try{
-          const prompt = `You are drafting call notes for a lab services quote. Review prior notes and quotes stored in the vector database (Milvus) to match tone and structure, but do not copy. Generate realistic new notes summarizing:\n- customer context\n- requested work/items\n- quantities, units, and approximate unit costs (USD)\n- assumptions or exclusions\n\nOutput plain text (no JSON, no code blocks). Assume this is a 25 minute trasncript from a call between a scientist and a salesperson.`;
+          const prompt = `You are drafting call notes for a lab services quote. Review prior notes and quotes stored in the vector database (Milvus) to match tone and structure, but do not copy. Generate realistic new notes summarizing:\n- customer context\n- requested work/items\n- quantities, units, and approximate unit costs (USD)\n- assumptions or exclusions\n\nOutput plain text (no JSON, no code blocks). Assume this is a 25 minute trasncript from a call between a scientist and a salesperson. If no customer is filled out assume it's Pfizer.`;
           const res = await fetch('/agent/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt }) });
           const data = await res.json();
           const draft = toHumanReadable(data);
