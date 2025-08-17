@@ -21,6 +21,8 @@
       .actions { display:flex; gap:10px; margin-top:12px; }
       button { padding:10px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
       button:disabled { background:#9ca3af; border-color:#9ca3af; cursor:not-allowed; }
+      .secondary { background:#f3f4f6; color:var(--text); border-color: var(--border); }
+      .secondary:disabled { opacity:.7; cursor:not-allowed; }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
     </style>
@@ -45,6 +47,7 @@
         <label for="notes" style="display:block;color:var(--muted);font-size:13px;margin-bottom:6px">Describe the call details. Notes will be used to draft a quote.</label>
         <textarea id="notes" placeholder="Ex: Customer wants a replica of OD-00012 with weekend surcharge $500 and service fee $1500."></textarea>
         <div class="actions">
+          <button id="autoGen" class="secondary">Auto-Generate Notes</button>
           <button id="saveNotes">Save</button>
         </div>
       </div>
@@ -74,6 +77,33 @@
       }
 
       const saveBtn = document.getElementById('saveNotes');
+      const autoBtn = document.getElementById('autoGen');
+
+      function toHumanReadable(data){
+        try{
+          let payload = data && data.result !== undefined ? data.result : data;
+          if (typeof payload === 'string') return payload;
+          if (payload && typeof payload === 'object'){
+            if (payload.message) return String(payload.message);
+            return JSON.stringify(payload, null, 2);
+          }
+          return String(payload||'');
+        }catch{return ''}
+      }
+
+      autoBtn.onclick = async ()=>{
+        const btn = autoBtn; btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Generating…';
+        try{
+          const prompt = `You are drafting call notes for a lab services quote. Review prior notes and quotes stored in the vector database (Milvus) to match tone and structure, but do not copy. Generate realistic new notes summarizing:\n- customer context\n- requested work/items\n- quantities, units, and approximate unit costs (USD)\n- assumptions or exclusions\n\nOutput plain text (no JSON, no code blocks). Assume this is a 25 minute trasncript from a call between a scientist and a salesperson.`;
+          const res = await fetch('/agent/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt }) });
+          const data = await res.json();
+          const draft = toHumanReadable(data);
+          const notesEl = document.getElementById('notes');
+          if (draft) notesEl.value = draft;
+          showToast('Draft notes generated');
+        }catch(e){ showToast('Failed to generate notes'); }
+        finally{ btn.disabled = false; btn.textContent = prev; }
+      };
       saveBtn.onclick = async ()=>{
         const notes = document.getElementById('notes').value.trim();
         if(!notes){ showToast('Please enter some notes'); return; }
