@@ -50,7 +50,7 @@
     </style>
   </head>
   <body>
-    <script async crossorigin="anonymous" data-clerk-publishable-key="pk_test_YW1wbGUtd3Jlbi02LmNsZXJrLmFjY291bnRzLmRldiQ" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"></script>
+    <!-- Clerk temporarily disabled -->
     <div class="topbar">
       <div class="inner">
         <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
@@ -103,16 +103,7 @@
       let original = null;
       let isEditing = false;
 
-      async function authHeaders(){
-        try{
-          if (window.Clerk){
-            await window.Clerk.load();
-            const token = await window.Clerk.session?.getToken();
-            if (token) return { 'Authorization': 'Bearer ' + token, 'Clerk-Session': token };
-          }
-        }catch{}
-        return {};
-      }
+      async function authHeaders(){ return {}; }
 
       function showToast(msg){
         const toasts = document.getElementById('toasts');

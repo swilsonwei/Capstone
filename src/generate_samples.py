@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import random
+import re
+import argparse
 from pathlib import Path
 from datetime import datetime
 
@@ -111,7 +113,98 @@ def generate_rfp_paragraphs(n: int = 3) -> list[str]:
     return parts[:n]
 
 
+# --- Enhancements: Customers and Pricing ---
+CUSTOMERS = ["Pfizer", "BMS", "Moderna", "J&J"]
+
+LINE_ITEM_NAMES = [
+    "Flow cytometry panel (16-color)",
+    "ELISA cytokine panel",
+    "Animal housing (per cage)",
+    "Scientist analysis (per hour)",
+    "QA review",
+    "PBMC isolation (per sample)",
+    "qPCR reagents",
+    "Western blot reagents",
+    "Microscopy imaging time",
+]
+
+def generate_pricing_items(min_items: int = 3, max_items: int = 6) -> tuple[list[dict], float]:
+    k = random.randint(min_items, max_items)
+    picks = random.sample(LINE_ITEM_NAMES, k)
+    items: list[dict] = []
+    subtotal = 0.0
+    for name in picks:
+        qty = random.randint(1, 12)
+        unit_cost = round(random.uniform(80, 2500), 2)
+        line_total = round(qty * unit_cost, 2)
+        subtotal += line_total
+        items.append({
+            "item": name,
+            "quantity": qty,
+            "unit_cost": unit_cost,
+            "line_total": line_total,
+        })
+    subtotal = round(subtotal, 2)
+    return items, subtotal
+
+def format_money(amount: float) -> str:
+    return f"${amount:,.2f}"
+
+def build_customer_pricing_paragraphs() -> list[str]:
+    customer = random.choice(CUSTOMERS)
+    items, subtotal = generate_pricing_items()
+    lines = [f"Customer: {customer}", "Pricing:"]
+    for it in items:
+        lines.append(
+            f"- {it['item']} — qty {it['quantity']} × {format_money(it['unit_cost'])} = {format_money(it['line_total'])}"
+        )
+    lines.append(f"Subtotal: {format_money(subtotal)}")
+    return ["\n".join(lines)]
+
+def next_sop_index() -> int:
+    max_n = 0
+    pat = re.compile(r"SOP_(\d{2,})\.(?:pdf|docx)$", re.I)
+    for p in SAMPLE_DIR.glob("SOP_*.*"):
+        m = pat.search(p.name)
+        if m:
+            try:
+                n = int(m.group(1))
+                max_n = max(max_n, n)
+            except Exception:
+                pass
+    return max_n + 1
+
+def generate_extra_sops(count: int = 15) -> None:
+    SAMPLE_DIR.mkdir(parents=True, exist_ok=True)
+    start = next_sop_index()
+    for i in range(count):
+        idx = start + i
+        title = random.choice(SOP_TITLES)
+        # Build paragraphs: SOP body + customer + pricing
+        body_paras = generate_sop_text(title).split("\n\n")
+        body_paras.extend(build_customer_pricing_paragraphs())
+        # Mix of DOCX/PDF; alternate for even distribution
+        use_docx = (i % 2 == 0)
+        if use_docx:
+            out = SAMPLE_DIR / f"SOP_{idx:02d}.docx"
+            make_docx(out, title, "\n\n".join(body_paras))
+        else:
+            out = SAMPLE_DIR / f"SOP_{idx:02d}.pdf"
+            make_pdf(out, title, body_paras)
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Generate sample SOPs/RFPs")
+    parser.add_argument("--extra-sops", type=int, default=0, help="Generate this many additional SOPs (mixed DOCX/PDF) with Customer and Pricing sections")
+    parser.add_argument("--all", action="store_true", help="Generate the original baseline set (10 SOP docx + 10 SOP pdf + 10 RFP pdf)")
+    args = parser.parse_args()
+
+    if args.extra_sops and args.extra_sops > 0:
+        generate_extra_sops(args.extra_sops)
+        print(f"Generated {args.extra_sops} additional SOPs in {SAMPLE_DIR}")
+        return
+
+    # Default: original baseline set
     SAMPLE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Generate 10 SOP DOCX

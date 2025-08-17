@@ -18,6 +18,7 @@ from src.constants import (
     CLERK_FRONTEND_API,
     CLERK_API_URL,
     CLERK_JWKS_URL,
+    INTERNAL_API_SECRET,
 )
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
@@ -26,10 +27,8 @@ from src.audit_log import append_log, list_logs
 from src.mcp_client import main as mcp_client_run
 import re
 import json as _json
-try:
-    from clerk_backend_api import Clerk
-except Exception:
-    Clerk = None  # optional for now
+# Clerk disabled for now
+Clerk = None
 
 try:
     from docx import Document
@@ -64,18 +63,15 @@ def _init_clerk() -> Optional[Clerk]:
     except Exception:
         return None
 
-_clerk = _init_clerk()
+# _clerk = _init_clerk()
 
 # Auth utilities (JWT via Clerk JWKS)
-try:
-    import jwt
-    from jwt import PyJWKClient
-except Exception:
-    jwt = None
-    PyJWKClient = None
+# JWT auth disabled for now
+jwt = None
+PyJWKClient = None
 
 def _auth_enabled() -> bool:
-    return bool(CLERK_SECRET_KEY and CLERK_JWKS_URL and CLERK_FRONTEND_API and jwt and PyJWKClient)
+    return False
 
 _jwks_client = None
 def _get_jwks_client():
@@ -87,34 +83,9 @@ def _get_jwks_client():
             _jwks_client = None
     return _jwks_client
 
-async def require_auth(authorization: str | None = Header(default=None), clerk_session: str | None = Header(default=None)) -> Optional[dict]:
-    if not _auth_enabled():
-        return None
-    token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ", 1)[1].strip()
-    elif clerk_session:  # support Clerk-Session header
-        token = clerk_session.strip()
-    if not token:
-        raise JSONResponse(status_code=401, content={"error": "missing bearer token"})
-    try:
-        jwks_client = _get_jwks_client()
-        if jwks_client is None:
-            raise Exception("jwks client unavailable")
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-        payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            options={"verify_aud": False},
-        )
-        # Basic issuer check
-        iss = str(payload.get("iss", ""))
-        if not iss.startswith(CLERK_FRONTEND_API):
-            raise Exception("issuer mismatch")
-        return payload
-    except Exception as e:
-        return JSONResponse(status_code=401, content={"error": f"invalid token: {e}"})
+async def require_auth(authorization: str | None = Header(default=None), clerk_session: str | None = Header(default=None), x_internal_secret: str | None = Header(default=None)) -> Optional[dict]:
+    # Auth temporarily disabled
+    return None
 # Middleware to log orders-related API calls with prompt and tool_name (operation_id)
 @app.middleware("http")
 async def audit_orders_calls(request: Request, call_next):

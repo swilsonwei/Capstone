@@ -28,6 +28,9 @@ CLERK_JWKS_URL = os.getenv(
     "https://ample-wren-6.clerk.accounts.dev/.well-known/jwks.json",
 )
 
+# Internal API secret to allow MCP-to-API calls to bypass Clerk auth (server-to-server)
+INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
+
 # Reranking configuration
 ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
 RERANKING_MODEL = os.getenv("RERANKING_MODEL", "gpt-4o-mini")  # Chat model used for prompt-based reranking
@@ -41,7 +44,7 @@ mcp_config = {
             # Use Render's port if present; defaults to 8000 locally
             "url": f"http://localhost:{os.getenv('PORT', '8000')}/mcp",
             "headers": {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
         }
     }
@@ -54,3 +57,10 @@ if GITHUB_MCP_PAT:
         "url": "https://api.githubcopilot.com/mcp/",
         "headers": {"Authorization": f"Bearer {GITHUB_MCP_PAT}"},
     }
+
+# Attach internal secret header if configured
+if INTERNAL_API_SECRET:
+    try:
+        mcp_config["mcpServers"]["local-mcp-server"]["headers"]["X-Internal-Secret"] = INTERNAL_API_SECRET
+    except Exception:
+        pass
