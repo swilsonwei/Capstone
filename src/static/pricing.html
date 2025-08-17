@@ -35,6 +35,7 @@
       button.secondary { background:#fff; color:var(--accent); }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
+      .footer { margin-top: 28px; padding: 18px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
       /* Agent chat UI (match CPQ/Orders) */
       .chat { display:flex; flex-direction:column; gap:8px; }
       .chat-scroll { max-height:340px; overflow:auto; }
@@ -54,6 +55,7 @@
         <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
         <div class="top-actions"></div>
       </div>
+      <div class="footer">© 2025 CPQ Platform</div>
     </div>
     <div class="container">
       <div class="breadcrumbs">
@@ -151,6 +153,7 @@
         meta.innerHTML = `
           <div class="meta">
             <span class="badge"><span class="label">Order</span><span class="value">${o.id||''}</span></span>
+            <span class="badge"><span class="label">Customer</span><span class="value">${o.customers||''}</span></span>
             <span class="badge"><span class="label">Source</span><span class="value">${o.source_file||''}</span></span>
             <span class="badge accent"><span class="label">Subtotal</span><span class="value">${formatMoneyNoDecimals(o.subtotal||0)}</span></span>
           </div>

@@ -98,7 +98,7 @@
         cursor: pointer;
       }
       textarea { 
-        width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; color: var(--prompt-text); font-weight: 600;
+        width: 100%; height: 140px; resize: vertical; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 16px; color: var(--prompt-text); font-weight: 400; font-family: inherit;
       }
       .row { margin-bottom: 14px; }
       .actions { display: flex; gap: 10px; }
@@ -200,9 +200,9 @@
               <button id="openPdf" type="button" style="display:none">Open PDF Preview</button>
             </div>
           </form>
-          <h3 style="margin-top:14px">Ingest Result</h3>
-          <div id="tableWrap" style="color: var(--prompt-text)"></div>
-          <pre id="ingestResult" style="color: var(--prompt-text)"></pre>
+          <h3 id="ingestHeader" style="margin-top:14px; display:none">Ingest Result</h3>
+          <div id="tableWrap" style="color: var(--prompt-text); display:none"></div>
+          <pre id="ingestResult" style="color: var(--prompt-text); display:none"></pre>
           <div id="pricingLink" style="margin-top:8px"></div>
         </div>
 
@@ -339,6 +339,10 @@
             body: fd
           });
           const data = await res.json();
+          // Reveal ingest UI now that a file completed processing
+          document.getElementById('ingestHeader').style.display = '';
+          ingestResultEl.style.display = '';
+          tableWrap.style.display = '';
           ingestResultEl.textContent = JSON.stringify(data, null, 2);
           if (data && data.order && data.order.id && data.pricing_url){
             document.getElementById('pricingLink').innerHTML = `<a href="${data.pricing_url}">Go to Pricing for Order ${data.order.id}</a>`;

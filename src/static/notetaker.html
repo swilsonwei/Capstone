@@ -25,6 +25,7 @@
       .secondary:disabled { opacity:.7; cursor:not-allowed; }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
+      .footer { margin-top: 28px; padding: 18px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
     </style>
   </head>
   <body>
@@ -51,6 +52,7 @@
           <button id="saveNotes">Save</button>
         </div>
       </div>
+      <div class="footer">© 2025 CPQ Platform</div>
     </div>
     <div class="toasts" id="toasts"></div>
     <script>

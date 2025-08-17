@@ -801,6 +801,8 @@ async def orders_pdf(order_id: str):
     c.drawString(1 * inch, y, f"Quote {order_id}")
     y -= 0.4 * inch
     c.setFont("Helvetica", 10)
+    c.drawString(1 * inch, y, f"Customer: {order.get('customers','')}")
+    y -= 0.2 * inch
     c.drawString(1 * inch, y, f"Source: {order.get('source_file','')}")
     y -= 0.25 * inch
     c.drawString(1 * inch, y, "Item")
