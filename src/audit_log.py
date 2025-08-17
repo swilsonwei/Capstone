@@ -67,6 +67,9 @@ def append_log(entry: Dict[str, Any]) -> Dict[str, Any]:
             }
             # Remove None keys to avoid null-overwrites
             row = {k: v for k, v in columns.items() if v is not None}
+            # Ensure order_id is provided to satisfy NOT NULL constraint; otherwise fall back to JSON only
+            if "order_id" not in row or row.get("order_id") in (None, ""):
+                raise Exception("missing order_id for supabase audit_logs insert")
             res = _sb.table("audit_logs").insert(row).execute()
             # Attach DB id/created_at if present
             if hasattr(res, "data") and res.data:

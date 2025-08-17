@@ -256,6 +256,26 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
         if o.get("id") == order_id:
             target = o
             break
+    # If not in local cache but Supabase has it, seed local record
+    if target is None and _sb:
+        try:
+            resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
+            sb_row = (resp.data or [])[0] if hasattr(resp, "data") and resp.data else None
+            if sb_row:
+                target = {
+                    "id": sb_row.get("id"),
+                    "source_file": sb_row.get("source_file", ""),
+                    "customers": sb_row.get("customers", ""),
+                    "items": list(sb_row.get("items") or []),
+                    "items_count": int(sb_row.get("items_count", 0) or 0),
+                    "subtotal": float(sb_row.get("subtotal", 0) or 0.0),
+                    "status": sb_row.get("status", "Quoted"),
+                    "created_at": sb_row.get("created_at") or datetime.utcnow().isoformat() + "Z",
+                }
+                store.setdefault("orders", []).append(target)
+                _save_store(store)
+        except Exception:
+            pass
     if not target:
         return None
     # Guardrail: block edits for Sent/Received

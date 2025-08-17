@@ -1013,7 +1013,7 @@ async def orders_status(update: OrderStatusUpdate, _auth=Depends(require_auth)):
         return JSONResponse(status_code=404, content={"error": "order not found"})
     return updated
 class OrderCustomerUpdate(BaseModel):
-    id: str
+    id: Optional[str] = None
     customers: str
     prompt: Optional[str] = None
 
@@ -1025,10 +1025,16 @@ class OrderCustomerUpdate(BaseModel):
     description="Body must be `{ id: string, customers: string }`. Returns the updated order."
 )
 async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_auth)):
+    # Fallback to current order context if id not provided
+    effective_id = update.id or (AGENT_ORDER_ID.get() or recent_agent_order_id())
+    if not effective_id:
+        return JSONResponse(status_code=400, content={"error": "missing order id"})
     effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
-    updated = update_customer(update.id, update.customers, prompt=effective_prompt, tool_name="update_order_customer")
+    updated = update_customer(effective_id, update.customers, prompt=effective_prompt, tool_name="update_order_customer")
     if not updated:
-        return JSONResponse(status_code=404, content={"error": "order not found"})
+        # As a last resort, check if order exists to return a clearer error
+        exists = get_order(effective_id)
+        return JSONResponse(status_code=404, content={"error": "order not found" if not exists else "failed to update customer"})
     return updated
 
 
@@ -1187,7 +1193,7 @@ async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_aut
         existing = get_order(payload.order_id)
         if not existing:
             return JSONResponse(status_code=404, content={"error": "order not found"})
-        base_items = list(existing.get("items", []))
+        base_items = list(existing.get("items") or [])
         add_items, _ = _normalize_items(payload.additions)
         merged = base_items + add_items
         effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
