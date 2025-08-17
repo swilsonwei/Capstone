@@ -137,6 +137,7 @@
 
       /* Dropzone */
       .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); transition: border-color .15s ease, background .15s ease; }
+      .dropzone:hover { cursor: pointer; }
       .dropzone.drag { border-color: var(--accent); background: rgba(37,99,235,.06); }
 
       /* Skeletons */
@@ -339,16 +340,16 @@
             body: fd
           });
           const data = await res.json();
-          // Reveal ingest UI now that a file completed processing
+          // Auto-redirect to Pricing page for the new order
+          if (data && data.order && data.order.id && data.pricing_url){
+            window.location.href = data.pricing_url;
+            return;
+          }
+          // Fallback: reveal ingest UI if redirect data missing
           document.getElementById('ingestHeader').style.display = '';
           ingestResultEl.style.display = '';
           tableWrap.style.display = '';
           ingestResultEl.textContent = JSON.stringify(data, null, 2);
-          if (data && data.order && data.order.id && data.pricing_url){
-            document.getElementById('pricingLink').innerHTML = `<a href="${data.pricing_url}">Go to Pricing for Order ${data.order.id}</a>`;
-          } else {
-            document.getElementById('pricingLink').innerHTML = '';
-          }
           if (data && Array.isArray(data.items) && data.items.length) {
             const tbl = document.createElement('table');
             tbl.className = 'ingest-table';

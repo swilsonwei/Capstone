@@ -86,6 +86,33 @@
       const saveBtn = document.getElementById('saveNotes');
       const autoBtn = document.getElementById('autoGen');
 
+      const defaultLabels = {
+        save: saveBtn.textContent,
+        auto: autoBtn.textContent,
+      };
+
+      function setBusy(isBusy, mode){
+        // mode: 'save' | 'auto'
+        if (isBusy){
+          // disable both buttons
+          saveBtn.disabled = true;
+          autoBtn.disabled = true;
+          if (mode === 'save'){
+            saveBtn.textContent = 'Saving...';
+            autoBtn.textContent = defaultLabels.auto;
+          } else if (mode === 'auto'){
+            autoBtn.textContent = 'Generating…';
+            saveBtn.textContent = defaultLabels.save;
+          }
+        } else {
+          // restore
+          saveBtn.disabled = false;
+          autoBtn.disabled = false;
+          saveBtn.textContent = defaultLabels.save;
+          autoBtn.textContent = defaultLabels.auto;
+        }
+      }
+
       function toHumanReadable(data){
         try{
           let payload = data && data.result !== undefined ? data.result : data;
@@ -99,7 +126,7 @@
       }
 
       autoBtn.onclick = async ()=>{
-        const btn = autoBtn; btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Generating…';
+        setBusy(true, 'auto');
         try{
           const prompt = `You are drafting call notes for a lab services quote. Review prior notes and quotes stored in the vector database (Milvus) to match tone and structure, but do not copy. Generate realistic new notes summarizing:\n- customer context\n- requested work/items\n- quantities, units, and approximate unit costs (USD)\n- assumptions or exclusions\n\nOutput plain text (no JSON, no code blocks). Assume this is a 25 minute trasncript from a call between a scientist and a salesperson. If no customer is filled out assume it's Pfizer.`;
           const res = await fetch('/agent/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt }) });
@@ -109,19 +136,19 @@
           if (draft) notesEl.value = draft;
           showToast('Draft notes generated');
         }catch(e){ showToast('Failed to generate notes'); }
-        finally{ btn.disabled = false; btn.textContent = prev; }
+        finally{ setBusy(false); }
       };
       saveBtn.onclick = async ()=>{
         const notes = document.getElementById('notes').value.trim();
         if(!notes){ showToast('Please enter some notes'); return; }
-        saveBtn.disabled = true; const originalText = saveBtn.textContent; saveBtn.textContent = 'Saving...';
+        setBusy(true, 'save');
         showToast('Processing notes...');
         try{
           await fetch('/logs/emit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'notetaker_saved', details:{ length: notes.length }, prompt: notes }) });
         }catch{}
         const orderId = await createOrderFromNotes(notes);
         if(orderId){ location.href = `/pricing/${orderId}`; }
-        else { showToast('Failed to create order'); saveBtn.disabled = false; saveBtn.textContent = originalText; }
+        else { showToast('Failed to create order'); setBusy(false); }
       };
     </script>
   </body>
