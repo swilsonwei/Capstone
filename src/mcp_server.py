@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi import FastAPI, UploadFile, File, Form, Request, Depends, Header
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi_mcp import FastApiMCP
@@ -12,6 +12,13 @@ from src.sow_generator import generate_sow
 import asyncio
 from pathlib import Path
 from src.constants import mcp_config
+from src.constants import (
+    CLERK_PUBLISHABLE_KEY,
+    CLERK_SECRET_KEY,
+    CLERK_FRONTEND_API,
+    CLERK_API_URL,
+    CLERK_JWKS_URL,
+)
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
 from src.order_store import create_order, list_orders, update_status, get_order, update_items
@@ -19,6 +26,10 @@ from src.audit_log import append_log, list_logs
 from src.mcp_client import main as mcp_client_run
 import re
 import json as _json
+try:
+    from clerk_backend_api import Clerk
+except Exception:
+    Clerk = None  # optional for now
 
 try:
     from docx import Document
@@ -39,6 +50,71 @@ except Exception:
     canvas = None
 
 app = FastAPI()
+
+# Optional Clerk SDK initialization (no-op if package/env not configured yet)
+def _init_clerk() -> Optional[Clerk]:
+    try:
+        if Clerk is None:
+            return None
+        # Use constants loaded from env
+        secret = CLERK_SECRET_KEY
+        if not secret:
+            return None
+        return Clerk(secret_key=secret)
+    except Exception:
+        return None
+
+_clerk = _init_clerk()
+
+# Auth utilities (JWT via Clerk JWKS)
+try:
+    import jwt
+    from jwt import PyJWKClient
+except Exception:
+    jwt = None
+    PyJWKClient = None
+
+def _auth_enabled() -> bool:
+    return bool(CLERK_SECRET_KEY and CLERK_JWKS_URL and CLERK_FRONTEND_API and jwt and PyJWKClient)
+
+_jwks_client = None
+def _get_jwks_client():
+    global _jwks_client
+    if _jwks_client is None and _auth_enabled():
+        try:
+            _jwks_client = PyJWKClient(CLERK_JWKS_URL)
+        except Exception:
+            _jwks_client = None
+    return _jwks_client
+
+async def require_auth(authorization: str | None = Header(default=None), clerk_session: str | None = Header(default=None)) -> Optional[dict]:
+    if not _auth_enabled():
+        return None
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    elif clerk_session:  # support Clerk-Session header
+        token = clerk_session.strip()
+    if not token:
+        raise JSONResponse(status_code=401, content={"error": "missing bearer token"})
+    try:
+        jwks_client = _get_jwks_client()
+        if jwks_client is None:
+            raise Exception("jwks client unavailable")
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            options={"verify_aud": False},
+        )
+        # Basic issuer check
+        iss = str(payload.get("iss", ""))
+        if not iss.startswith(CLERK_FRONTEND_API):
+            raise Exception("issuer mismatch")
+        return payload
+    except Exception as e:
+        return JSONResponse(status_code=401, content={"error": f"invalid token: {e}"})
 # Middleware to log orders-related API calls with prompt and tool_name (operation_id)
 @app.middleware("http")
 async def audit_orders_calls(request: Request, call_next):
@@ -797,7 +873,7 @@ class NotetakerIngest(BaseModel):
 
 
 @app.post("/notetaker/ingest", operation_id="notetaker_ingest")
-async def notetaker_ingest(body: NotetakerIngest):
+async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
     """Integration endpoint: ingest call notes, let the agent act, and return the new order id and pricing URL."""
     notes = body.notes or ""
     try:
@@ -805,6 +881,7 @@ async def notetaker_ingest(body: NotetakerIngest):
             "type": "notetaker_ingest_start",
             "prompt": notes,
             "tool_name": "notetaker_ingest",
+            "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
         # Reuse the agent flow so full reasoning is captured in audit trail
         _ = await agent_run(AgentRunRequest(prompt=notes, history=None))
@@ -831,6 +908,7 @@ async def notetaker_ingest(body: NotetakerIngest):
                 "order_id": order_id,
                 "prompt": notes,
                 "tool_name": "notetaker_ingest",
+                "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
             })
             try:
                 asyncio.create_task(index_notes_in_milvus(order_id, notes))
@@ -842,6 +920,7 @@ async def notetaker_ingest(body: NotetakerIngest):
             "prompt": notes,
             "tool_name": "notetaker_ingest",
             "details": {"error": "order not created"},
+            "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
         return JSONResponse(status_code=400, content={"error": "order not created"})
     except Exception as e:
@@ -850,6 +929,7 @@ async def notetaker_ingest(body: NotetakerIngest):
             "prompt": notes,
             "tool_name": "notetaker_ingest",
             "details": {"error": str(e)},
+            "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
         return JSONResponse(status_code=400, content={"error": str(e)})
 
@@ -919,7 +999,7 @@ async def pricing_data(order_id: str):
 
 
 @app.post("/pricing/save/{order_id}")
-async def pricing_save(order_id: str, body: PricingUpdate):
+async def pricing_save(order_id: str, body: PricingUpdate, _auth=Depends(require_auth)):
     effective_prompt = body.prompt if getattr(body, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
     updated = update_items(order_id, (body.items or []), prompt=effective_prompt, tool_name="pricing_save")
     if not updated:
@@ -949,7 +1029,7 @@ class OrderStatusUpdate(BaseModel):
     summary="Update a single order status",
     description="Body must be `{ id: string, status: Quoted|Sent|Received }`. Returns the updated order."
 )
-async def orders_status(update: OrderStatusUpdate):
+async def orders_status(update: OrderStatusUpdate, _auth=Depends(require_auth)):
     if update.status not in ("Quoted", "Sent", "Received"):
         return JSONResponse(status_code=400, content={"error": "invalid status"})
     # Use explicit prompt if provided; else fallback to current/last agent prompt context
@@ -1059,7 +1139,7 @@ def _normalize_items(items: list) -> tuple[list, float]:
 
 
 @app.post("/orders/clone", operation_id="clone_order")
-async def clone_order(payload: CloneOrderRequest) -> Dict:
+async def clone_order(payload: CloneOrderRequest, _auth=Depends(require_auth)) -> Dict:
     """Clone an existing order and add line items (e.g., Service Charge). Returns the new order."""
     try:
         source = get_order(payload.source_order_id)
@@ -1109,7 +1189,7 @@ class AddItemsRequest(BaseModel):
 
 
 @app.post("/orders/add_items", operation_id="add_items_to_order")
-async def add_items_to_order(payload: AddItemsRequest) -> Dict:
+async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_auth)) -> Dict:
     """Add line items to an existing order (two-step flows: clone → add items)."""
     try:
         existing = get_order(payload.order_id)
@@ -1142,7 +1222,7 @@ class CreateVariantRequest(BaseModel):
 
 
 @app.post("/orders/variant", operation_id="create_variant_order")
-async def create_variant_order(payload: CreateVariantRequest) -> Dict:
+async def create_variant_order(payload: CreateVariantRequest, _auth=Depends(require_auth)) -> Dict:
     """Create a new order variant from an existing one, with added items and desired status.
 
     This endpoint NEVER modifies the source order. It returns the newly created order id.

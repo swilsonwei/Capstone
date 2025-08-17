@@ -15,6 +15,19 @@ MILVUS_DATABASE = os.getenv("MILVUS_DATABASE", "default")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
+# Clerk configuration
+CLERK_PUBLISHABLE_KEY = (
+    os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
+    or os.getenv("CLERK_PUBLISHABLE_KEY", "")
+)
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
+CLERK_FRONTEND_API = os.getenv("CLERK_FRONTEND_API", "")
+CLERK_API_URL = os.getenv("CLERK_API_URL", "https://api.clerk.com")
+CLERK_JWKS_URL = os.getenv(
+    "CLERK_JWKS_URL",
+    "https://ample-wren-6.clerk.accounts.dev/.well-known/jwks.json",
+)
+
 # Reranking configuration
 ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
 RERANKING_MODEL = os.getenv("RERANKING_MODEL", "gpt-4o-mini")  # Chat model used for prompt-based reranking
