@@ -115,7 +115,22 @@ def list_orders() -> List[Dict[str, Any]]:
         try:
             resp = _sb.table("orders").select("*").order("created_at", desc=True).execute()
             if resp and hasattr(resp, "data"):
-                return list(resp.data)
+                sb_orders = [dict(r) for r in list(resp.data)]
+                # Merge local cache fields (e.g., customers, items) if Supabase rows are missing them
+                store = _ensure_store()
+                local_by_id = {o.get("id"): o for o in store.get("orders", [])}
+                merged: List[Dict[str, Any]] = []
+                for row in sb_orders:
+                    oid = row.get("id")
+                    local = local_by_id.get(oid, {})
+                    # Prefer Supabase values; fill blanks from local cache
+                    if (not row.get("customers")) and local.get("customers"):
+                        row["customers"] = local.get("customers")
+                    # Do not override Supabase items; only fill if absent
+                    if (not row.get("items")) and local.get("items"):
+                        row["items"] = local.get("items")
+                    merged.append(row)
+                return merged
         except Exception:
             pass
     store = _ensure_store()
@@ -240,6 +255,12 @@ def get_order(order_id: str) -> Dict[str, Any] | None:
                     _save_store(store)
                 except Exception:
                     pass
+            # If Supabase lacks customers but local has it, hydrate return value
+            try:
+                if (not sb_row.get("customers")) and local and local.get("customers"):
+                    sb_row["customers"] = local.get("customers")
+            except Exception:
+                pass
             # If local has items but Supabase lacks them, enrich the return value with local items
             if (not sb_row.get("items")) and local and local.get("items"):
                 sb_row["items"] = local.get("items")
