@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -377,6 +378,20 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
 
 def update_customer(order_id: str, customers: str, prompt: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any] | None:
     """Update the customer name for an order (both Supabase and local cache)."""
+    def _normalize_customer_name(name: str) -> str:
+        try:
+            s = (name or "").strip()
+            if not s:
+                return ""
+            # If clearly all-lower or all-upper, convert to Title Case for readability
+            if s.islower() or s.isupper():
+                # Title-case alphabetic runs while preserving numerics/symbols
+                return re.sub(r"[A-Za-z]+", lambda m: m.group(0).capitalize(), s)
+            return s
+        except Exception:
+            return (name or "").strip()
+
+    customers = _normalize_customer_name(customers)
     # Supabase-first
     if _sb:
         try:

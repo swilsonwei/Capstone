@@ -50,6 +50,22 @@ except Exception:
 
 app = FastAPI()
 
+# Lightweight singletons to reduce per-request initialization cost
+_MCP_CLIENT: MCPClient | None = None
+_LLM: ChatOpenAI | None = None
+
+def _get_mcp_client() -> MCPClient:
+    global _MCP_CLIENT
+    if _MCP_CLIENT is None:
+        _MCP_CLIENT = MCPClient(mcp_config)
+    return _MCP_CLIENT
+
+def _get_llm() -> ChatOpenAI:
+    global _LLM
+    if _LLM is None:
+        _LLM = ChatOpenAI(model="gpt-4o-mini", streaming=False)
+    return _LLM
+
 # Optional Clerk SDK initialization (no-op if package/env not configured yet)
 def _init_clerk() -> Optional[Clerk]:
     try:
@@ -205,6 +221,34 @@ def _summarize_agent_result(result: object) -> str:
         return lead
     except Exception:
         return "agent action executed"
+
+# Heuristic extraction for customer name from freeform notes
+def _extract_customer_from_notes(notes: str) -> Optional[str]:
+    try:
+        s = (notes or "").strip()
+        if not s:
+            return None
+        # Common patterns: "Customer: Pfizer", "Customer Name - Acme Corp", "Client: ...", "Company: ..."
+        patterns = [
+            r"(?im)^[\-*\s>]*customer(?:\s+name)?\s*[:\-]\s*(.+)$",
+            r"(?im)^[\-*\s>]*client\s*[:\-]\s*(.+)$",
+            r"(?im)^[\-*\s>]*company\s*[:\-]\s*(.+)$",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s)
+            if m:
+                cand = m.group(1).strip()
+                # Clean markdown artifacts and trailing decorations
+                cand = re.sub(r"^\**|\**$", "", cand).strip()
+                cand = re.sub(r"^`+|`+$", "", cand).strip()
+                # Stop at common delimiters
+                cand = re.split(r"[\|•#\r\n]", cand)[0].strip()
+                # Limit length to avoid capturing entire paragraphs
+                if 1 <= len(cand) <= 120:
+                    return cand
+        return None
+    except Exception:
+        return None
 
 # Global prompt cache to bridge across separate HTTP requests initiated by the agent
 LAST_AGENT_PROMPT: str | None = None
@@ -372,8 +416,8 @@ class AgentRunRequest(BaseModel):
 @app.post("/agent/run")
 async def agent_run(req: AgentRunRequest):
     try:
-        client = MCPClient(mcp_config)
-        llm = ChatOpenAI(model="gpt-4o-mini", streaming=False)
+        client = _get_mcp_client()
+        llm = _get_llm()
         agent = MCPAgent(llm=llm, client=client, max_steps=20)
 
         TOOL_GUIDE = (
@@ -412,12 +456,13 @@ async def agent_run(req: AgentRunRequest):
         remember_agent_prompt(combined_prompt)
         remember_agent_order_id(req.order_id)
 
-        # Log start (store full reasoning context in prompt)
-        append_log({"type": "agent_run_start", "prompt": combined_prompt})
+        # Log start with a concise summary of the user prompt (not the tool guide)
+        user_prompt_summary = _summarize_text(req.prompt, 200)
+        append_log({"type": "agent_run_start", "prompt": user_prompt_summary})
 
         result = await agent.run(combined_prompt)
-        # Derive concise summary for audit prompt
-        action_summary = _summarize_text(_summarize_agent_result(result), 200)
+        # Keep a concise summary of the user prompt for audit trail, do not log tool guide
+        action_summary = _summarize_text(req.prompt, 200)
         append_log({
             "type": "agent_run",
             "prompt": action_summary,
@@ -426,7 +471,9 @@ async def agent_run(req: AgentRunRequest):
         })
         return {"result": result}
     except Exception as e:
-        append_log({"type": "agent_run_error", "prompt": (action_summary if 'action_summary' in locals() else (combined_prompt if 'combined_prompt' in locals() else req.prompt)), "error": str(e)})
+        # On error, prefer summarizing the user prompt
+        safe_prompt = _summarize_text(req.prompt if 'req' in locals() else "", 200)
+        append_log({"type": "agent_run_error", "prompt": safe_prompt, "error": str(e)})
         return JSONResponse(status_code=400, content={"error": str(e)})
     finally:
         try:
@@ -876,6 +923,14 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
                     _ = update_status(order_id, "Quoted", prompt=notes)
             except Exception:
                 pass
+            # Extract and set customer name if present in notes
+            try:
+                existing_name = (current or {}).get("customers", "") if isinstance(current, dict) else ""
+                extracted = _extract_customer_from_notes(notes)
+                if extracted and (not existing_name or existing_name.strip() != extracted.strip()):
+                    _ = update_customer(order_id, extracted, prompt=notes, tool_name="notetaker_ingest")
+            except Exception:
+                pass
             append_log({
                 "type": "notetaker_ingest",
                 "order_id": order_id,
@@ -1228,7 +1283,9 @@ async def create_variant_order(payload: CreateVariantRequest, _auth=Depends(requ
     try:
         if payload.status not in ("Quoted", "Sent", "Received"):
             return JSONResponse(status_code=400, content={"error": "invalid status"})
-        source = get_order(payload.source_order_id)
+        # Be forgiving about whitespace in incoming ids
+        source_id = (payload.source_order_id or "").strip()
+        source = get_order(source_id)
         if not source:
             return JSONResponse(status_code=404, content={"error": "source order not found"})
 
@@ -1237,7 +1294,7 @@ async def create_variant_order(payload: CreateVariantRequest, _auth=Depends(requ
         combined = base_items + add_items
         normalized, subtotal = _normalize_items(combined)
 
-        source_name = source.get("source_file") or f"Variant of {payload.source_order_id}"
+        source_name = source.get("source_file") or f"Variant of {source_id}"
         effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
         new_order = create_order(source_name, subtotal, len(normalized), status=payload.status, items=normalized, prompt=effective_prompt, tool_name="create_variant_order")
 
@@ -1277,6 +1334,12 @@ mcp_server = FastApiMCP(
     describe_all_responses=True,
 )
 mcp_server.mount()
+
+# Compatibility shim: some clients probe POST /mcp before establishing message channel.
+# Return Method Not Allowed as JSON instead of framework default HTML for faster fail & clearer logs.
+@app.post("/mcp")
+async def _mcp_probe_shim():
+    return JSONResponse(status_code=405, content={"error": "Method Not Allowed. Use GET /mcp then POST /mcp/messages."})
 
 if __name__ == "__main__":
     import uvicorn

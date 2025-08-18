@@ -11,6 +11,7 @@ from src.constants import (
 from typing import List, Dict, Any
 import requests
 import json
+from collections import OrderedDict
 import openai
 
 openai.api_key = OPENAI_API_KEY
@@ -18,6 +19,30 @@ client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # The cpq_life_sciences schema uses a 1536-dimension vector field
 EMBEDDING_MODEL = "text-embedding-3-small"
+_EMBED_CACHE: OrderedDict[str, list] = OrderedDict()
+_EMBED_CACHE_CAPACITY = 512
+
+def _get_cached_embedding(key: str) -> list | None:
+    try:
+        if key in _EMBED_CACHE:
+            # Move to end (most recently used)
+            _EMBED_CACHE.move_to_end(key)
+            return _EMBED_CACHE[key]
+    except Exception:
+        pass
+    return None
+
+def _put_cached_embedding(key: str, value: list) -> None:
+    try:
+        if not value:
+            return
+        _EMBED_CACHE[key] = value
+        _EMBED_CACHE.move_to_end(key)
+        while len(_EMBED_CACHE) > _EMBED_CACHE_CAPACITY:
+            _EMBED_CACHE.popitem(last=False)
+    except Exception:
+        pass
+
 
 # Optional: ensure collection exists using pymilvus
 try:
@@ -179,11 +204,16 @@ async def get_embedding(text: str) -> List[float]:
     if not client:
         return []
     try:
+        cached = _get_cached_embedding(text)
+        if cached is not None:
+            return cached
         response = await client.embeddings.create(
             model=EMBEDDING_MODEL,
             input=text
         )
-        return response.data[0].embedding
+        emb = response.data[0].embedding
+        _put_cached_embedding(text, emb)
+        return emb
     except Exception as e:
         print(f"Error getting embedding: {e}")
         return []
@@ -193,7 +223,12 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
     try:
         # Get query embedding
         query_embedding = await get_embedding(query)
-        print('embeeding', query_embedding)
+        # Avoid logging full embedding to reduce noise; log only basic stats
+        try:
+            emb_len = len(query_embedding) if isinstance(query_embedding, list) else 0
+            print(f"Embedding generated: dim={emb_len}")
+        except Exception:
+            pass
         if not query_embedding:
             return []
 
@@ -201,8 +236,13 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
         search_url = f"{MILVUS_URI}/v2/vectordb/entities/search"
         headers = {
             "Authorization": f"Bearer {MILVUS_TOKEN}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json",
         }
+        # If token is not configured, skip remote call gracefully
+        if not MILVUS_TOKEN:
+            print("Milvus/Zilliz token not configured; skipping vector search")
+            return []
         
         # Search for more documents initially to allow reranking to select the best ones
         initial_limit = min(limit * INITIAL_SEARCH_MULTIPLIER, 20)  # Get 3x more results for reranking
@@ -216,14 +256,24 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
             "outputFields": ["text", "doc_id", "chunk_id", "source"]
         }
 
-        response = requests.post(search_url, json=search_data, headers=headers)
+        response = requests.post(search_url, json=search_data, headers=headers, timeout=5)
         if response.status_code != 200:
-            print(f"Zilliz API error: {response.status_code}")
+            try:
+                body = response.text
+            except Exception:
+                body = ""
+            # Truncate long error bodies
+            snippet = (body or "")[:240]
+            print(f"Zilliz API error: {response.status_code} {snippet}")
             return []
         
         result = response.json()
-        pretty_json_string = json.dumps(result, indent=4)
-        print('milvus sources', pretty_json_string)
+        # Reduce log volume: log counts only
+        try:
+            count = len(result.get('data', []) or [])
+            print(f"Milvus sources returned: {count}")
+        except Exception:
+            pass
 
         sources = []
         if 'data' in result:
@@ -245,9 +295,12 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
         
         # Apply reranking to improve result relevance
         reranked_sources = await rerank_results(query, sources, limit)
-        
-        pretty_json_string = json.dumps(reranked_sources, indent=4)
-        print('reranked sources', pretty_json_string)
+        # Log top texts briefly
+        try:
+            preview = [s.get('text', '')[:60] for s in reranked_sources[:3]]
+            print(f"Reranked top: {preview}")
+        except Exception:
+            pass
     
 
         return reranked_sources
@@ -265,6 +318,8 @@ async def add_document(text: str, doc_id: str, chunk_id: int, source: str):
     Primary key is auto-generated; we do not set it here.
     """
     try:
+        if not MILVUS_TOKEN:
+            return {"message": "Skipped insert (no Milvus token)", "doc_id": doc_id, "chunk_id": chunk_id}
         # Check if the chunk already exists by doc_id and chunk_id
         query_url = f"{MILVUS_URI}/v2/vectordb/entities/search"
         headers = {
@@ -280,7 +335,7 @@ async def add_document(text: str, doc_id: str, chunk_id: int, source: str):
             "outputFields": ["doc_id", "chunk_id"]
         }
 
-        response = requests.post(query_url, json=query_data, headers=headers)
+        response = requests.post(query_url, json=query_data, headers=headers, timeout=5)
         if response.status_code == 200:
             result = response.json()
             if result.get('data') and len(result['data']) > 0:
@@ -307,7 +362,7 @@ async def add_document(text: str, doc_id: str, chunk_id: int, source: str):
             ]
         }
 
-        response = requests.post(insert_url, json=insert_data, headers=headers)
+        response = requests.post(insert_url, json=insert_data, headers=headers, timeout=8)
         if response.status_code != 200:
             try:
                 return {"message": "Failed to insert document", "doc_id": doc_id, "chunk_id": chunk_id, "status": response.status_code, "error": response.text}

@@ -7,7 +7,8 @@ GITHUB_MCP_PAT = os.getenv("GITHUB_PAT")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MILVUS_URI = os.getenv("MILVUS_URI", "https://in03-745f9d0d214e290.serverless.gcp-us-west1.cloud.zilliz.com")
-MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "a9fbb8b5142250c0449cbda360b72567b993a860ada6fe23c2a5b7af1cadce39b41eae18491af928622d13593ec6391c9b067efc")
+# Do not ship a default token; require env configuration
+MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "")
 COLLECTION_NAME = "cpq_life_sciences"
 MILVUS_DATABASE = os.getenv("MILVUS_DATABASE", "default")
 
@@ -32,7 +33,8 @@ CLERK_JWKS_URL = os.getenv(
 INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
 
 # Reranking configuration
-ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
+# Default reranking off for speed unless explicitly enabled
+ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "false").lower() == "true"
 RERANKING_MODEL = os.getenv("RERANKING_MODEL", "gpt-4o-mini")  # Chat model used for prompt-based reranking
 INITIAL_SEARCH_MULTIPLIER = int(os.getenv("INITIAL_SEARCH_MULTIPLIER", "3"))  # How many more results to fetch initially
 
