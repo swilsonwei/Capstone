@@ -474,6 +474,7 @@ async def agent_run(req: AgentRunRequest):
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
             "- When user asks to add a fee or line item to an existing order id, call add_items_to_order with that id. Do NOT clone the order.\n"
+            "- When user asks to change/update the customer name for an existing order id, call update_order_customer with that id. Do NOT add a line item for customer.\n"
             "- For 'clone then add items' flows only when user explicitly asks for a variant/new order: call clone_order → (optionally) add_items_to_order.\n"
             f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
             "- For PDF preview of an existing order, call orders_pdf (GET /orders/pdf/{order_id}). Only call agent_quote_pdf when you provide a body with items and subtotal.\n"
@@ -583,6 +584,7 @@ def _chunk_text(text: str, chunk_size: int = 1200, chunk_overlap: int = 200):
 async def index_order_in_milvus(order: Dict) -> None:
     """Index a newly created order into Milvus as retrieval data for the LLM."""
     try:
+        # Milvus optional; ignore ensure step when disabled or inaccessible
         ensure_collection_exists()
     except Exception:
         pass
@@ -627,6 +629,7 @@ async def index_notes_in_milvus(order_id: str, notes: str, source: str = "noteta
     if not notes or not order_id:
         return
     try:
+        # Milvus optional; ignore ensure step when disabled or inaccessible
         ensure_collection_exists()
     except Exception:
         pass
@@ -1155,11 +1158,28 @@ async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_aut
     if not effective_id:
         return JSONResponse(status_code=400, content={"error": "missing order id"})
     effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
+    # Ensure order is mutable; if Sent/Received, set back to Quoted before customer change
+    try:
+        current = get_order(effective_id)
+        if current and str(current.get("status")) in ("Sent", "Received"):
+            _ = update_status(effective_id, "Quoted", prompt=effective_prompt, tool_name="update_order_customer")
+    except Exception:
+        pass
     updated = update_customer(effective_id, update.customers, prompt=effective_prompt, tool_name="update_order_customer")
     if not updated:
         # As a last resort, check if order exists to return a clearer error
         exists = get_order(effective_id)
         return JSONResponse(status_code=404, content={"error": "order not found" if not exists else "failed to update customer"})
+    try:
+        append_log({
+            "type": "order_customer_updated",
+            "order_id": effective_id,
+            "details": {"customers": update.customers},
+            "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+            "tool_name": "update_order_customer",
+        })
+    except Exception:
+        pass
     return updated
 
 

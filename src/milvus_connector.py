@@ -7,6 +7,7 @@ from src.constants import (
     ENABLE_RERANKING,
     RERANKING_MODEL,
     MILVUS_DATABASE,
+    MILVUS_ENABLED,
 )
 from typing import List, Dict, Any
 import requests
@@ -221,6 +222,8 @@ async def get_embedding(text: str) -> List[float]:
 async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Search for similar documents using Zilliz dedicated API over HTTP with reranking."""        
     try:
+        if not MILVUS_ENABLED:
+            return []
         # Get query embedding
         query_embedding = await get_embedding(query)
         # Avoid logging full embedding to reduce noise; log only basic stats
@@ -318,6 +321,8 @@ async def add_document(text: str, doc_id: str, chunk_id: int, source: str):
     Primary key is auto-generated; we do not set it here.
     """
     try:
+        if not MILVUS_ENABLED:
+            return {"message": "Skipped insert (Milvus disabled)", "doc_id": doc_id, "chunk_id": chunk_id}
         if not MILVUS_TOKEN:
             return {"message": "Skipped insert (no Milvus token)", "doc_id": doc_id, "chunk_id": chunk_id}
         # Check if the chunk already exists by doc_id and chunk_id

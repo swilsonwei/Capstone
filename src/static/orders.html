@@ -85,6 +85,8 @@
           <h2>Run Agent</h2>
           <div id="chat" class="chat chat-scroll" style="font-size:16px;color:var(--prompt-text);font-weight:400;font-family:inherit"></div>
           <div class="row" style="margin-top:12px">
+            <label for="orderId">Order ID (optional)</label>
+            <input id="orderId" type="text" placeholder="OD-00023" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;color:var(--prompt-text);font-weight:600" />
             <label for="prompt">Prompt</label>
             <textarea id="prompt" style="width:100%;height:120px">Say hello!</textarea>
           </div>
@@ -156,10 +158,12 @@
 
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
+      const orderIdEl = document.getElementById('orderId');
       const chatEl = document.getElementById('chat');
       let history = [];
       runBtn.addEventListener('click', async () => {
         const text = promptEl.value;
+        const explicitOrderId = (orderIdEl.value || '').trim();
         const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
         history.push({ role: 'user', content: text });
         promptEl.value = '';
@@ -168,12 +172,14 @@
           const res = await fetch('/agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: text, history })
+            body: JSON.stringify({ prompt: text, history, order_id: explicitOrderId || undefined })
           });
           const data = await res.json();
           const msg = toHumanReadable(data);
           bot.textContent = msg;
           history.push({ role: 'assistant', content: msg });
+          // Refresh orders table so updates are visible without manual reload
+          try { await loadOrders(); } catch {}
         } catch (e) {
           bot.textContent = 'Error: ' + e;
         }

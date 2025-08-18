@@ -11,6 +11,7 @@ MILVUS_URI = os.getenv("MILVUS_URI", "https://in03-745f9d0d214e290.serverless.gc
 MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "")
 COLLECTION_NAME = "cpq_life_sciences"
 MILVUS_DATABASE = os.getenv("MILVUS_DATABASE", "default")
+MILVUS_ENABLED = os.getenv("MILVUS_ENABLED", "false").lower() == "true"
 
 # Supabase configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
