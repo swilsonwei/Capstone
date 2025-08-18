@@ -383,8 +383,11 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
             s = (name or "").strip()
             if not s:
                 return ""
-            # If clearly all-lower or all-upper, convert to Title Case for readability
-            if s.islower() or s.isupper():
+            # Preserve acronyms that arrive uppercase (e.g., BMS, GSK)
+            if s.isupper():
+                return s
+            # If clearly all-lower, convert to Title Case for readability
+            if s.islower():
                 # Title-case alphabetic runs while preserving numerics/symbols
                 return re.sub(r"[A-Za-z]+", lambda m: m.group(0).capitalize(), s)
             return s
@@ -433,25 +436,64 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
                     pass
                 return target
         except Exception:
+            # Fall through to local handling
             pass
-    # Local-only fallback
+
+    # Ensure local cache has a record for this order by hydrating from Supabase or get_order
     store = _ensure_store()
+    target = None
     for o in store.get("orders", []):
         if o.get("id") == order_id:
-            o["customers"] = customers
-            _save_store(store)
+            target = o
+            break
+    if target is None:
+        # Try to hydrate from Supabase directly
+        if _sb:
             try:
-                from src.audit_log import append_log
-                append_log({
-                    "type": "order_customer_updated",
-                    "order_id": order_id,
-                    "details": {"customers": customers},
-                    "prompt": prompt,
-                    "tool_name": tool_name,
-                })
+                resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
+                sb_row = (resp.data or [])[0] if hasattr(resp, "data") and resp.data else None
             except Exception:
-                pass
-            return o
+                sb_row = None
+            if sb_row:
+                target = {
+                    "id": sb_row.get("id"),
+                    "source_file": sb_row.get("source_file", ""),
+                    "customers": customers,
+                    "items_count": int(sb_row.get("items_count", 0) or 0),
+                    "subtotal": float(sb_row.get("subtotal", 0) or 0.0),
+                    "status": sb_row.get("status", "Quoted"),
+                    "created_at": sb_row.get("created_at") or datetime.utcnow().isoformat() + "Z",
+                    "items": sb_row.get("items") or [],
+                }
+                store.setdefault("orders", []).append(target)
+                _save_store(store)
+    if target is None:
+        # As a last resort, fetch via get_order (may merge supabase/local)
+        try:
+            merged = get_order(order_id)
+            if merged:
+                target = dict(merged)
+                store.setdefault("orders", []).append(target)
+                _save_store(store)
+        except Exception:
+            pass
+
+    if target is not None:
+        target["customers"] = customers
+        _save_store(store)
+        try:
+            from src.audit_log import append_log
+            append_log({
+                "type": "order_customer_updated",
+                "order_id": order_id,
+                "details": {"customers": customers},
+                "prompt": prompt,
+                "tool_name": tool_name,
+            })
+        except Exception:
+            pass
+        return target
+
     return None
 
 

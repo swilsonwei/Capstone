@@ -76,14 +76,27 @@
           const data = await res.json();
           const tbody = document.querySelector('#logTbl tbody');
           const rows = data.logs || [];
+          function formatET(iso){
+            try{
+              if (!iso) return '';
+              const d = new Date(iso);
+              const fmt = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+              }).format(d);
+              return `${fmt} ET`;
+            }catch{ return iso||''; }
+          }
           for(const lg of rows){
             const tr = document.createElement('tr');
             const createdAt = lg.created_at || lg.time || '';
+            const createdAtET = formatET(createdAt);
             const detailsObj = lg.details ? lg.details : Object.fromEntries(Object.entries(lg).filter(([k]) => !['id','time','created_at','order_id','type','prompt','tool_name'].includes(k)));
             tr.innerHTML = `
               <td>${lg.order_id||''}</td>
               <td>${lg.type||''}</td>
-              <td>${createdAt}</td>
+              <td title="${createdAt}">${createdAtET}</td>
               <td>${lg.tool_name||''}</td>
               <td>${lg.prompt ? String(lg.prompt).slice(0,200) : ''}</td>
               <td><pre>${JSON.stringify(detailsObj, null, 2)}</pre></td>

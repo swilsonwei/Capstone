@@ -431,6 +431,7 @@ async def agent_run(req: AgentRunRequest):
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
             "- For 'clone then add items' flows: call clone_order → fetch items (pricing_data) → save merged items (pricing_save) or call add_items_to_order when available.\n"
             f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
+            "- For PDF preview of an existing order, call orders_pdf (GET /orders/pdf/{order_id}). Only call agent_quote_pdf when you provide a body with items and subtotal.\n"
             "- Output style: Write for end users in brief, readable sentences or 2–6 short bullets. Avoid code blocks and JSON unless explicitly requested.\n"
             "  Present key figures clearly (e.g., Today total: $X; Yesterday total: $Y), then 1–3 bullets with highlights. Use US currency formatting.\n"
         )
@@ -903,54 +904,65 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
             "tool_name": "notetaker_ingest",
             "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
-        # Reuse the agent flow so full reasoning is captured in audit trail
-        _ = await agent_run(AgentRunRequest(prompt=notes, history=None))
-        # Identify the newest order (Supabase path returns desc by created_at)
-        orders = list_orders()
-        order_id = None
-        if isinstance(orders, list) and orders:
-            candidate = orders[0] if orders and isinstance(orders[0], dict) else None
-            order_id = candidate.get("id") if candidate else None
-            if not order_id:
-                # Fallback for local JSON store order
-                last = orders[-1] if orders else None
-                order_id = (last or {}).get("id")
-        if order_id:
-            # Ensure order is in Quoted and items persisted before returning
+        # Parse items from notes and create an order deterministically (no agent round-trip)
+        items = await extract_line_items(notes)
+        subtotal = 0.0
+        normalized_items = []
+        for it in items or []:
+            name = str(it.get("item", "")).strip()
             try:
-                current = get_order(order_id) or {}
-                if current and current.get("status") != "Quoted":
-                    _ = update_status(order_id, "Quoted", prompt=notes)
+                qty = float(it.get("quantity", 0))
             except Exception:
-                pass
-            # Extract and set customer name if present in notes
+                qty = 0.0
             try:
-                existing_name = (current or {}).get("customers", "") if isinstance(current, dict) else ""
-                extracted = _extract_customer_from_notes(notes)
-                if extracted and (not existing_name or existing_name.strip() != extracted.strip()):
-                    _ = update_customer(order_id, extracted, prompt=notes, tool_name="notetaker_ingest")
+                unit_cost = float(it.get("unit_cost", it.get("cost", 0)))
             except Exception:
-                pass
-            append_log({
-                "type": "notetaker_ingest",
-                "order_id": order_id,
-                "prompt": notes,
-                "tool_name": "notetaker_ingest",
-                "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
+                unit_cost = 0.0
+            line_total = qty * unit_cost
+            subtotal += line_total
+            normalized_items.append({
+                "item": name,
+                "quantity": qty,
+                "unit_cost": unit_cost,
+                "line_total": line_total,
             })
-            try:
-                asyncio.create_task(index_notes_in_milvus(order_id, notes))
-            except Exception:
-                pass
-            return {"ok": True, "order_id": order_id, "pricing_url": f"/pricing/{order_id}"}
+
+        order = create_order(
+            source_file="Call Notes",
+            subtotal=subtotal,
+            items_count=len(normalized_items),
+            status="Quoted",
+            items=normalized_items,
+            prompt=notes,
+            tool_name="notetaker_ingest",
+        )
+
+        order_id = order.get("id")
+        # Extract and set customer name if present in notes
+        try:
+            extracted = _extract_customer_from_notes(notes)
+            if extracted:
+                _ = update_customer(order_id, extracted, prompt=notes, tool_name="notetaker_ingest")
+        except Exception:
+            pass
+        # Index order and notes in Milvus
+        try:
+            asyncio.create_task(index_order_in_milvus(order))
+        except Exception:
+            pass
+        try:
+            asyncio.create_task(index_notes_in_milvus(order_id, notes))
+        except Exception:
+            pass
+
         append_log({
-            "type": "notetaker_ingest_error",
+            "type": "notetaker_ingest",
+            "order_id": order_id,
             "prompt": notes,
             "tool_name": "notetaker_ingest",
-            "details": {"error": "order not created"},
             "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
-        return JSONResponse(status_code=400, content={"error": "order not created"})
+        return {"ok": True, "order_id": order_id, "pricing_url": f"/pricing/{order_id}"}
     except Exception as e:
         append_log({
             "type": "notetaker_ingest_error",

@@ -49,7 +49,7 @@
       <div class="card">
         <h2>Call Notes</h2>
         <label for="notes" style="display:block;color:var(--muted);font-size:13px;margin-bottom:6px">Describe the call details. Notes will be used to draft a quote.</label>
-        <textarea id="notes" placeholder="Ex: Customer wants a replica of OD-00012 with weekend surcharge $500 and service fee $1500."></textarea>
+        <textarea id="notes" placeholder=""></textarea>
         <div class="actions">
           <button id="saveNotes">Save</button>
         </div>
@@ -69,16 +69,12 @@
 
       async function createOrderFromNotes(notes){
         try{
-          const res = await fetch('/agent/run', {
+          const res = await fetch('/notetaker/ingest', {
             method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ prompt: notes })
+            body: JSON.stringify({ notes })
           });
           const data = await res.json();
-          const res2 = await fetch('/orders/data');
-          const data2 = await res2.json();
-          const orders = data2.orders || [];
-          const newest = orders.length ? orders[0] : null;
-          if(newest && newest.id){ return newest.id; }
+          if (data && data.ok && data.order_id) return data.order_id;
           return null;
         } catch(e){ return null; }
       }
