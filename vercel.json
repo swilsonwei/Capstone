@@ -7,6 +7,7 @@
     { "source": "/cpq/:path*",  "destination": "https://capstone-w85i.onrender.com/cpq/:path*" },
     { "source": "/orders/:path*", "destination": "https://capstone-w85i.onrender.com/orders/:path*" },
     { "source": "/rfps/:path*",    "destination": "https://capstone-w85i.onrender.com/rfps/:path*" },
+    { "source": "/notetaker/:path*", "destination": "https://capstone-w85i.onrender.com/notetaker/:path*" },
     { "source": "/sow/:path*",    "destination": "https://capstone-w85i.onrender.com/sow/:path*" },
     { "source": "/agent/:path*",  "destination": "https://capstone-w85i.onrender.com/agent/:path*" },
     { "source": "/static/:path*", "destination": "https://capstone-w85i.onrender.com/static/:path*" }
