@@ -256,6 +256,8 @@ LAST_AGENT_PROMPT_TS: float = 0.0
 PROMPT_TTL_SECONDS: float = 300.0
 LAST_AGENT_ORDER_ID: str | None = None
 LAST_AGENT_ORDER_ID_TS: float = 0.0
+LAST_USER_PROMPT: str | None = None
+LAST_USER_PROMPT_TS: float = 0.0
 
 def remember_agent_prompt(prompt: Optional[str]) -> None:
     global LAST_AGENT_PROMPT, LAST_AGENT_PROMPT_TS
@@ -271,6 +273,20 @@ def recent_agent_prompt() -> Optional[str]:
         pass
     return None
 
+def remember_user_prompt(prompt: Optional[str]) -> None:
+    global LAST_USER_PROMPT, LAST_USER_PROMPT_TS
+    if prompt:
+        LAST_USER_PROMPT = str(prompt)
+        LAST_USER_PROMPT_TS = time()
+
+def recent_user_prompt() -> Optional[str]:
+    try:
+        if LAST_USER_PROMPT and (time() - LAST_USER_PROMPT_TS) <= PROMPT_TTL_SECONDS:
+            return LAST_USER_PROMPT
+    except Exception:
+        pass
+    return None
+
 def remember_agent_order_id(order_id: Optional[str]) -> None:
     global LAST_AGENT_ORDER_ID, LAST_AGENT_ORDER_ID_TS
     if order_id:
@@ -281,6 +297,34 @@ def recent_agent_order_id() -> Optional[str]:
     try:
         if LAST_AGENT_ORDER_ID and (time() - LAST_AGENT_ORDER_ID_TS) <= PROMPT_TTL_SECONDS:
             return LAST_AGENT_ORDER_ID
+    except Exception:
+        pass
+    return None
+
+# Order ID normalization helpers
+def _extract_order_numeric(order_id: str) -> Optional[int]:
+    try:
+        s = str(order_id or "").strip()
+        # Accept patterns like OD-00023, od-23, OD00023
+        import re as _re
+        m = _re.search(r"(\d+)$", s)
+        if not m:
+            return None
+        return int(m.group(1))
+    except Exception:
+        return None
+
+def _resolve_order_id(candidate: str | None) -> Optional[str]:
+    if not candidate:
+        return None
+    target_n = _extract_order_numeric(candidate)
+    if target_n is None:
+        return None
+    try:
+        for o in list_orders():
+            n = _extract_order_numeric(o.get("id"))
+            if n == target_n:
+                return o.get("id")
     except Exception:
         pass
     return None
@@ -429,7 +473,8 @@ async def agent_run(req: AgentRunRequest):
             "- Ensure idempotency: avoid duplicate submissions; each intended action should execute once.\n"
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
-            "- For 'clone then add items' flows: call clone_order → fetch items (pricing_data) → save merged items (pricing_save) or call add_items_to_order when available.\n"
+            "- When user asks to add a fee or line item to an existing order id, call add_items_to_order with that id. Do NOT clone the order.\n"
+            "- For 'clone then add items' flows only when user explicitly asks for a variant/new order: call clone_order → (optionally) add_items_to_order.\n"
             f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
             "- For PDF preview of an existing order, call orders_pdf (GET /orders/pdf/{order_id}). Only call agent_quote_pdf when you provide a body with items and subtotal.\n"
             "- Output style: Write for end users in brief, readable sentences or 2–6 short bullets. Avoid code blocks and JSON unless explicitly requested.\n"
@@ -455,6 +500,7 @@ async def agent_run(req: AgentRunRequest):
             order_token = AGENT_ORDER_ID.set(req.order_id)
         # Persist full reasoning context (tool guide + conversation) for downstream audit logging
         remember_agent_prompt(combined_prompt)
+        remember_user_prompt(req.prompt)
         remember_agent_order_id(req.order_id)
 
         # Log start with a concise summary of the user prompt (not the tool guide)
@@ -1075,9 +1121,20 @@ async def orders_status(update: OrderStatusUpdate, _auth=Depends(require_auth)):
         return JSONResponse(status_code=400, content={"error": "invalid status"})
     # Use explicit prompt if provided; else fallback to current/last agent prompt context
     effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
-    updated = update_status(update.id, update.status, prompt=effective_prompt, tool_name="update_order_status")
+    effective_id = _resolve_order_id(update.id) or update.id
+    updated = update_status(effective_id, update.status, prompt=effective_prompt, tool_name="update_order_status")
     if not updated:
         return JSONResponse(status_code=404, content={"error": "order not found"})
+    try:
+        append_log({
+            "type": "order_status_updated",
+            "order_id": effective_id,
+            "details": {"status": update.status},
+            "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+            "tool_name": "update_order_status",
+        })
+    except Exception:
+        pass
     return updated
 class OrderCustomerUpdate(BaseModel):
     id: Optional[str] = None
@@ -1093,7 +1150,8 @@ class OrderCustomerUpdate(BaseModel):
 )
 async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_auth)):
     # Fallback to current order context if id not provided
-    effective_id = update.id or (AGENT_ORDER_ID.get() or recent_agent_order_id())
+    raw_id = update.id or (AGENT_ORDER_ID.get() or recent_agent_order_id())
+    effective_id = _resolve_order_id(raw_id) or raw_id
     if not effective_id:
         return JSONResponse(status_code=400, content={"error": "missing order id"})
     effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
@@ -1233,7 +1291,8 @@ async def clone_order(payload: CloneOrderRequest, _auth=Depends(require_auth)) -
                 "route": "/orders/clone",
                 "method": "POST",
                 "status": 200,
-                "prompt": effective_prompt,
+                # Use last user prompt summary instead of tool guide
+                "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
                 "tool_name": "clone_order",
             }
         )
@@ -1271,7 +1330,7 @@ async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_aut
             "type": "order_items_added",
             "order_id": payload.order_id,
             "details": {"added": add_items, "new_items_count": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)},
-            "prompt": effective_prompt,
+            "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
             "tool_name": "add_items_to_order",
         })
         return {"order": updated}
@@ -1324,7 +1383,7 @@ async def create_variant_order(payload: CreateVariantRequest, _auth=Depends(requ
                 "route": "/orders/variant",
                 "method": "POST",
                 "status": 200,
-                "prompt": effective_prompt,
+                "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
                 "tool_name": "create_variant_order",
             }
         )
