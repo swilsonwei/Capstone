@@ -556,7 +556,14 @@ async def rfps_page():
 async def notetaker_page():
     page = static_dir / "notetaker.html"
     if page.exists():
-        return FileResponse(str(page), media_type="text/html")
+        return FileResponse(
+            str(page),
+            media_type="text/html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
     return JSONResponse(status_code=404, content={"error": "notetaker.html not found"})
 
 
