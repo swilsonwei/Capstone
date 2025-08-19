@@ -273,6 +273,15 @@
           bot.textContent = 'Error: ' + e;
         }
       });
+
+      // Keyboard shortcuts: Enter submits, Shift+Enter inserts newline
+      promptEl.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          if (e.shiftKey) return; // insert newline
+          e.preventDefault();
+          if (!runBtn.disabled) runBtn.click();
+        }
+      });
     </script>
   </body>
   </html>

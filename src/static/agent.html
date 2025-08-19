@@ -273,6 +273,15 @@
         }
       });
 
+      // Keyboard shortcuts: Enter submits, Shift+Enter inserts newline
+      promptEl.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          if (e.shiftKey) return; // allow newline
+          e.preventDefault();
+          if (!runBtn.disabled) runBtn.click();
+        }
+      });
+
       async function loadStats(){
         try {
           const res = await fetch('/orders/stats');

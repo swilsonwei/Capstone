@@ -375,6 +375,15 @@
         }
       });
 
+      // Keyboard shortcuts: Enter submits, Shift+Enter inserts newline
+      promptEl.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          if (e.shiftKey) return; // newline
+          e.preventDefault();
+          if (!runBtn.disabled) runBtn.click();
+        }
+      });
+
       uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         ingestResultEl.textContent = 'Uploading...';

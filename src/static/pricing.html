@@ -378,6 +378,15 @@
           runAgentBtn.textContent = prevLabel;
         }
       });
+
+      // Keyboard shortcuts: Enter submits, Shift+Enter inserts newline
+      agentPromptEl.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          if (e.shiftKey) return; // newline
+          e.preventDefault();
+          if (!runAgentBtn.disabled) runAgentBtn.click();
+        }
+      });
     </script>
   </body>
   </html>
