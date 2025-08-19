@@ -321,6 +321,10 @@ LAST_AGENT_ORDER_ID_TS: float = 0.0
 LAST_USER_PROMPT: str | None = None
 LAST_USER_PROMPT_TS: float = 0.0
 
+# Track last assistant message (e.g., a follow-up question) to improve audit trail context
+LAST_ASSISTANT_MSG: str | None = None
+LAST_ASSISTANT_MSG_TS: float = 0.0
+
 def remember_agent_prompt(prompt: Optional[str]) -> None:
     global LAST_AGENT_PROMPT, LAST_AGENT_PROMPT_TS
     if prompt:
@@ -348,6 +352,46 @@ def recent_user_prompt() -> Optional[str]:
     except Exception:
         pass
     return None
+
+def remember_assistant_message(message: Optional[str]) -> None:
+    global LAST_ASSISTANT_MSG, LAST_ASSISTANT_MSG_TS
+    if message:
+        LAST_ASSISTANT_MSG = str(message)
+        LAST_ASSISTANT_MSG_TS = time()
+
+def recent_assistant_message() -> Optional[str]:
+    try:
+        if LAST_ASSISTANT_MSG and (time() - LAST_ASSISTANT_MSG_TS) <= PROMPT_TTL_SECONDS:
+            return LAST_ASSISTANT_MSG
+    except Exception:
+        pass
+    return None
+
+def _looks_like_confirmation(text: str | None) -> bool:
+    if not text:
+        return False
+    s = str(text).strip().lower()
+    return s in {"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please do", "do it", "proceed"} or s in {"no", "n", "nope", "don't", "do not", "cancel"}
+
+def _audit_prompt_context(fallback: Optional[str] = None) -> str:
+    """Return a concise prompt summary for audit logs.
+
+    If the latest user message is a short confirmation (yes/no/sure), include the
+    previous assistant follow-up question for clarity: "yes — Follow-up: <question>".
+    Otherwise, summarize the latest user prompt. If none, fall back to agent prompt.
+    """
+    try:
+        user = recent_user_prompt()
+        if user:
+            user_s = _summarize_text(user, 200)
+            if _looks_like_confirmation(user_s):
+                a = recent_assistant_message()
+                if a:
+                    return f"{user_s} — Follow-up: {_summarize_text(a, 200)}"
+            return user_s
+        return _summarize_text(AGENT_PROMPT.get(), 200) or _summarize_text(fallback, 200)
+    except Exception:
+        return _summarize_text(fallback or recent_user_prompt() or AGENT_PROMPT.get(), 200)
 
 def remember_agent_order_id(order_id: Optional[str]) -> None:
     global LAST_AGENT_ORDER_ID, LAST_AGENT_ORDER_ID_TS
@@ -536,14 +580,16 @@ async def agent_run(req: AgentRunRequest):
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
             "- Scope guardrails: Only perform actions that map directly to available MCP tools/API endpoints in this app. Never claim or simulate capabilities that are not exposed here.\n"
-            "- Mixed-scope requests: If a request contains both supported and unsupported parts, DO NOT execute any action yet. First, ask ONE concise follow-up to confirm proceeding with the supported part(s), then await explicit user approval (e.g., 'yes') before calling any tools.\n"
+            "- Mixed-scope requests: If a request contains both supported and unsupported parts, DO NOT execute any action yet. First, ask ONE concise follow-up to confirm proceeding with the supported part(s), then await explicit user approval (e.g., 'yes') before calling any tools. Begin the reply with 'Follow-up:' so the user understands it's a clarification.\n"
             "- Unsupported examples (decline politely): drawing/creating images, posting to Instagram or other external sites, sending emails/Slack, web browsing, payment processing, user/account administration.\n"
             "  When declining, say: 'We’re sorry, but we can’t do that in this app.' Offer a closest in-scope alternative only if helpful.\n"
             "- Clarification & confirmation: If the mapping to a tool is ambiguous or could impact multiple records, ask ONE concise follow-up question and await the user's confirmation before proceeding.\n"
             "- Example: If asked 'create a quote like OD-37 and draw pictures of deer and elephant and upload to my Instagram':\n"
-            "  → Ask: 'I can create a new quote like OD-37. Proceed?'\n"
+            "  → Ask: 'Follow-up: I can create a new quote like OD-37. Proceed?'\n"
             "  → After user's 'yes', perform clone_order/create_variant_order.\n"
-            "  → Also state that drawing images and Instagram uploads are not supported in this app.\n"
+            "  → Also state in the same message that drawing images and Instagram uploads are not supported in this app.\n"
+            "- Tone: Be neutral and helpful. Avoid accusatory phrasing (e.g., 'you requested twice'). Prefer phrasing like 'Just to confirm…' or 'Would you like me to…'.\n"
+            "- Potential duplicates: If the user asks to add a line item that is similar to an existing one (e.g., another Service Fee $1,500), do NOT assume it's a mistake. Ask a short confirmation like: 'Add another Service Fee of $1,500 as a separate line item?' and wait for 'yes' before proceeding.\n"
             "- When user asks to add a fee or line item to an existing order id, call add_items_to_order with that id. Do NOT clone the order.\n"
             "- When user asks to change/update the customer name for an existing order id, call update_order_customer with that id. Do NOT add a line item for customer.\n"
             "- For 'clone then add items' flows only when user explicitly asks for a variant/new order: call clone_order → (optionally) add_items_to_order.\n"
@@ -930,7 +976,7 @@ async def extract_line_items(text: str):
 
 
 @app.post("/agent/quote_pdf", operation_id="agent_quote_pdf")
-async def agent_quote_pdf(payload: Dict):
+async def agent_quote_pdf(payload: Dict, request: Request):
     """Generate a PDF from provided items and subtotal; return inline for a new tab."""
     if canvas is None:
         return JSONResponse(status_code=400, content={"error": "reportlab not installed"})
@@ -987,6 +1033,23 @@ async def agent_quote_pdf(payload: Dict):
     headers = {
         "Content-Disposition": "inline; filename=quote_preview.pdf",
     }
+    # If an MCP client (or any JSON-preferring client) calls this tool, return a JSON stub
+    # instead of a binary PDF to avoid decode errors in tool adapters.
+    try:
+        accept = str(request.headers.get("accept", "")).lower()
+        if "application/json" in accept:
+            append_log({
+                "type": "quote_pdf",
+                "items": len(items),
+                "subtotal": subtotal,
+                "prompt": _audit_prompt_context(),
+            })
+            return JSONResponse({
+                "message": "PDF generated for preview",
+                "note": "Binary PDF not returned in JSON mode. Call this endpoint from a browser to stream the PDF inline.",
+            })
+    except Exception:
+        pass
     append_log({
         "type": "quote_pdf",
         "items": len(items),
@@ -997,7 +1060,7 @@ async def agent_quote_pdf(payload: Dict):
 
 
 @app.get("/orders/pdf/{order_id}", operation_id="orders_pdf")
-async def orders_pdf(order_id: str):
+async def orders_pdf(order_id: str, request: Request):
     if canvas is None:
         return JSONResponse(status_code=400, content={"error": "reportlab not installed"})
     order = get_order(order_id)
@@ -1054,6 +1117,16 @@ async def orders_pdf(order_id: str):
     c.showPage()
     c.save()
     pdf_buffer.seek(0)
+    # If called by MCP (expects JSON), return a JSON descriptor rather than raw PDF
+    try:
+        accept = str(request.headers.get("accept", "")).lower()
+        if "application/json" in accept:
+            return JSONResponse({
+                "pdf_url": f"/orders/pdf/{order_id}",
+                "message": "Open the URL in a browser to view the PDF",
+            })
+    except Exception:
+        pass
     headers = {"Content-Disposition": f"inline; filename={order_id}.pdf"}
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
@@ -1080,6 +1153,13 @@ async def logs_emit(body: LogEmit):
             # Summarize prompt if provided; else use recent user prompt
             "prompt": (_summarize_text(body.prompt, 200) if body.prompt else _summarize_text(recent_user_prompt(), 200)),
         })
+        # If this is an assistant message, remember it for short-confirmation context
+        try:
+            if str(body.type) == "assistant_message" and isinstance(body.details, dict):
+                msg = body.details.get("message")
+                remember_assistant_message(msg)
+        except Exception:
+            pass
         return {"ok": True, "log": rec}
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
@@ -1423,7 +1503,7 @@ async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
         "route": "/orders/top",
         "method": "GET",
         "status": 200,
-        "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
+        "prompt": _audit_prompt_context(),
         "tool_name": "identify_orders",
     })
     return {"orders": result}

@@ -299,6 +299,12 @@
           return s || String(text || '');
         }catch{return String(text||'');}
       }
+      function extractAgentResult(payload){
+        if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
+          return typeof payload.result === 'string' ? (safeParseJSON(payload.result) || {}) : (payload.result || {});
+        }
+        return payload || {};
+      }
       function toHumanReadable(data){
         let payload = data;
         if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
@@ -341,6 +347,7 @@
           const msg = toHumanReadable(data);
           bot.textContent = msg;
           history.push({ role: 'assistant', content: msg });
+          // No page reloads here; CPQ agent actions shouldn't disrupt any pending user input
           showToast('Agent completed');
         } catch (e) {
           bot.textContent = 'Error: ' + e;

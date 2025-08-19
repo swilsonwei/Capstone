@@ -267,6 +267,9 @@
           return s || String(text || '');
         }catch{return String(text||'');}
       }
+      function rememberAssistantMessage(msg){
+        try{ fetch('/logs/emit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'assistant_message', details:{ message: msg } }) }); }catch{}
+      }
       function toHumanReadable(data){
         let payload = data;
         if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
@@ -293,6 +296,27 @@
       const agentPromptEl = document.getElementById('agentPrompt');
       const chatEl = document.getElementById('chat');
       let history = [];
+      function extractAgentResult(payload){
+        try{
+          if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
+            return typeof payload.result === 'string' ? (safeParseJSON(payload.result) || {}) : (payload.result || {});
+          }
+          return payload || {};
+        }catch{ return {}; }
+      }
+      function didMutateCurrentOrder(payload){
+        try{
+          const r = extractAgentResult(payload);
+          if (!r) return false;
+          if (r.order && r.order.id === orderId) return true;
+          if (Array.isArray(r.updated_ids) && r.updated_ids.includes(orderId)) return true;
+          if (r.updated && r.updated.id === orderId) return true;
+          // Heuristic: an action list or message indicating add/update/clone/status for this order
+          const blob = JSON.stringify(r);
+          if (/\b(add|update|clone|variant|status)\b/i.test(blob) && (blob.includes(orderId))) return true;
+          return false;
+        }catch{ return false; }
+      }
       runAgentBtn.addEventListener('click', async () => {
         const text = agentPromptEl.value;
         const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
@@ -310,8 +334,10 @@
           const msg = toHumanReadable(data);
           bot.textContent = msg;
           history.push({ role: 'assistant', content: msg });
-          // Refresh pricing data so updates (customer, items) are visible without manual reload
-          try { await load(); } catch {}
+          try { rememberAssistantMessage(msg); } catch {}
+          // Refresh pricing data only if the agent actually mutated this order.
+          // This protects any local, unsaved edits from being wiped by a reload when the agent declines or only asks a question.
+          try { if (didMutateCurrentOrder(data)) { await load(); } } catch {}
         } catch (e) {
           bot.textContent = 'Error: ' + e;
         } finally {

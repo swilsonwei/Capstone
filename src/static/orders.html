@@ -114,6 +114,15 @@
           return s || String(text || '');
         }catch{return String(text||'');}
       }
+      function extractAgentResult(payload){
+        if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
+          return typeof payload.result === 'string' ? (safeParseJSON(payload.result) || {}) : (payload.result || {});
+        }
+        return payload || {};
+      }
+      function rememberAssistantMessage(msg){
+        try{ fetch('/logs/emit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'assistant_message', details:{ message: msg } }) }); }catch{}
+      }
       function toHumanReadable(data){
         let payload = data;
         if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
@@ -203,8 +212,15 @@
           const msg = toHumanReadable(data);
           bot.textContent = msg;
           history.push({ role: 'assistant', content: msg });
-          // Refresh orders table so updates are visible without manual reload
-          try { await loadOrders(); } catch {}
+          // Persist the assistant message so backend can include it with short confirmations
+          try { rememberAssistantMessage(msg); } catch {}
+          // Refresh only if the agent likely mutated orders
+          try {
+            const r = extractAgentResult(data);
+            if (r && ((Array.isArray(r.updated_ids) && r.updated_ids.length) || r.order)){
+              await loadOrders();
+            }
+          } catch {}
         } catch (e) {
           bot.textContent = 'Error: ' + e;
         }

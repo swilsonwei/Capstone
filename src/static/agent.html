@@ -178,6 +178,9 @@
           return s || String(text || '');
         }catch{return String(text||'');}
       }
+      function rememberAssistantMessage(msg){
+        try{ fetch('/logs/emit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'assistant_message', details:{ message: msg } }) }); }catch{}
+      }
       function toHumanReadable(data){
         let payload = data;
         if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
@@ -220,6 +223,7 @@
           const msg = toHumanReadable(data);
           bot.textContent = msg;
           history.push({ role: 'assistant', content: msg });
+          try { rememberAssistantMessage(msg); } catch {}
           showToast('Agent completed');
           // Refresh dashboard stats so changes are visible immediately
           try { await loadStats(); } catch {}
