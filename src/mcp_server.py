@@ -123,7 +123,8 @@ async def audit_orders_calls(request: Request, call_next):
                 "route": path,
                 "method": method,
                 "status": getattr(response, "status_code", None),
-                "prompt": (AGENT_PROMPT.get() or recent_agent_prompt()),
+                # Summarize recent user prompt; never log tool guide
+                "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
                 "tool_name": tool,
             })
     except Exception:
@@ -506,6 +507,7 @@ async def agent_run(req: AgentRunRequest):
 
         # Log start with a concise summary of the user prompt (not the tool guide)
         user_prompt_summary = _summarize_text(req.prompt, 200)
+        # Log summarized user prompt only (exclude tool guide)
         append_log({"type": "agent_run_start", "prompt": user_prompt_summary})
 
         result = await agent.run(combined_prompt)
@@ -513,6 +515,7 @@ async def agent_run(req: AgentRunRequest):
         action_summary = _summarize_text(req.prompt, 200)
         append_log({
             "type": "agent_run",
+            # Summarize user prompt; do not include tool guide
             "prompt": action_summary,
             "tokens_output": int(max(1, len(str(result))//4)),
             "result": result,
@@ -727,7 +730,7 @@ async def agent_upload(file: UploadFile = File(...)):
         len(normalized_items),
         status="Quoted",
         items=normalized_items,
-        prompt=(AGENT_PROMPT.get() or recent_agent_prompt()),
+        prompt=_summarize_text((AGENT_PROMPT.get() or recent_user_prompt()), 200),
         tool_name="agent_upload",
     )
     append_log({
@@ -738,6 +741,7 @@ async def agent_upload(file: UploadFile = File(...)):
         "order_id": order.get("id"),
         "items_count": len(normalized_items),
         "subtotal": subtotal,
+        "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
     })
     try:
         asyncio.create_task(index_order_in_milvus(order))
@@ -853,7 +857,12 @@ async def agent_quote_pdf(payload: Dict):
     headers = {
         "Content-Disposition": "inline; filename=quote_preview.pdf",
     }
-    append_log({"type": "quote_pdf", "items": len(items), "subtotal": subtotal})
+    append_log({
+        "type": "quote_pdf",
+        "items": len(items),
+        "subtotal": subtotal,
+        "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
+    })
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
 
@@ -938,7 +947,8 @@ async def logs_emit(body: LogEmit):
             "type": body.type,
             "order_id": body.order_id,
             "details": body.details,
-            "prompt": body.prompt,
+            # Summarize prompt if provided; else use recent user prompt
+            "prompt": (_summarize_text(body.prompt, 200) if body.prompt else _summarize_text(recent_user_prompt(), 200)),
         })
         return {"ok": True, "log": rec}
     except Exception as e:
@@ -956,7 +966,7 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
     try:
         append_log({
             "type": "notetaker_ingest_start",
-            "prompt": notes,
+            "prompt": _summarize_text(notes, 200),
             "tool_name": "notetaker_ingest",
             "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
@@ -1014,7 +1024,7 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
         append_log({
             "type": "notetaker_ingest",
             "order_id": order_id,
-            "prompt": notes,
+            "prompt": _summarize_text(notes, 200),
             "tool_name": "notetaker_ingest",
             "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
         })
@@ -1022,7 +1032,7 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
     except Exception as e:
         append_log({
             "type": "notetaker_ingest_error",
-            "prompt": notes,
+            "prompt": _summarize_text(notes, 200),
             "tool_name": "notetaker_ingest",
             "details": {"error": str(e)},
             "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
@@ -1238,7 +1248,7 @@ async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
         "route": "/orders/top",
         "method": "GET",
         "status": 200,
-        "prompt": AGENT_PROMPT.get(),
+        "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
         "tool_name": "identify_orders",
     })
     return {"orders": result}

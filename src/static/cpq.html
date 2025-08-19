@@ -115,6 +115,7 @@
       }
       button:hover { background: var(--accent-600); border-color: var(--accent-600); }
       button:active { background: var(--accent-700); border-color: var(--accent-700); }
+      button:disabled { background:#9ca3af; border-color:#9ca3af; cursor:not-allowed; }
       pre {
         background: #fafafa;
         border: 1px solid var(--border);
@@ -261,6 +262,18 @@
         toasts.appendChild(t);
         setTimeout(()=>{ t.remove(); }, 2400);
       }
+      function setUploadBusy(isBusy){
+        try{
+          uploadBtn.disabled = !!isBusy;
+          if (isBusy){
+            uploadBtn.dataset._label = uploadBtn.textContent;
+            uploadBtn.textContent = 'Uploading...';
+          } else {
+            uploadBtn.textContent = uploadBtn.dataset._label || 'Upload & Ingest';
+          }
+          fileEl.disabled = !!isBusy;
+        } catch {}
+      }
       // Auto-submit after file selection
       fileEl.addEventListener('change', () => {
         if (fileEl.files && fileEl.files.length) {
@@ -325,6 +338,7 @@
       uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         ingestResultEl.textContent = 'Uploading...';
+        setUploadBusy(true);
         try {
           const fd = new FormData();
           if (!fileEl.files.length) {
@@ -398,7 +412,7 @@
         } catch (e) {
           ingestResultEl.textContent = 'Error: ' + e;
           alertEl.textContent = 'Upload error: ' + e; alertEl.style.display='block';
-        }
+        } finally { setUploadBusy(false); }
       });
 
       // Dropzone behavior

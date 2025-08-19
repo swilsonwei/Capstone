@@ -88,13 +88,24 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
         try:
             # Try inserting with items (JSONB column if present)
             _sb.table("orders").insert(order).execute()
-        except Exception:
+        except Exception as e:
             # Fallback: insert without items field if column doesn't exist
             try:
                 row_no_items = {k: v for k, v in order.items() if k != "items"}
                 _sb.table("orders").insert(row_no_items).execute()
-            except Exception:
-                pass
+            except Exception as e2:
+                # Surface failure to audit log (best-effort)
+                try:
+                    from src.audit_log import append_log
+                    append_log({
+                        "type": "supabase_insert_failed",
+                        "order_id": order_id,
+                        "details": {"error_primary": str(e), "error_fallback": str(e2)},
+                        "tool_name": tool_name,
+                        "prompt": prompt,
+                    })
+                except Exception:
+                    pass
     # Emit audit log (best-effort)
     try:
         from src.audit_log import append_log
@@ -131,6 +142,11 @@ def list_orders() -> List[Dict[str, Any]]:
                     if (not row.get("items")) and local.get("items"):
                         row["items"] = local.get("items")
                     merged.append(row)
+                # Include local-only orders that failed to persist to Supabase
+                present_ids = {o.get("id") for o in merged}
+                for lid, lo in local_by_id.items():
+                    if lid not in present_ids:
+                        merged.append(lo)
                 return merged
         except Exception:
             pass
@@ -343,24 +359,42 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
     target["subtotal"] = float(subtotal)
     _save_store(store)
 
-    # update Supabase aggregates
+    # Create or update Supabase row (best-effort)
     if _sb:
         try:
-            # Attempt to persist items JSON if column exists
-            _sb.table("orders").update({
+            # Prefer upsert to ensure the row exists
+            _sb.table("orders").upsert({
+                "id": order_id,
                 "items": normalized,
                 "items_count": len(normalized),
-                "subtotal": float(subtotal)
-            }).eq("id", order_id).execute()
+                "subtotal": float(subtotal),
+            }).execute()
         except Exception:
-            # Fallback without items column
+            # Fallback: try update with items
             try:
                 _sb.table("orders").update({
+                    "items": normalized,
                     "items_count": len(normalized),
                     "subtotal": float(subtotal)
                 }).eq("id", order_id).execute()
             except Exception:
-                pass
+                # Fallback: try upsert without items column
+                try:
+                    _sb.table("orders").upsert({
+                        "id": order_id,
+                        "items_count": len(normalized),
+                        "subtotal": float(subtotal),
+                    }).execute()
+                except Exception:
+                    # Last resort: insert minimal row if not present
+                    try:
+                        _sb.table("orders").insert({
+                            "id": order_id,
+                            "items_count": len(normalized),
+                            "subtotal": float(subtotal),
+                        }).execute()
+                    except Exception:
+                        pass
     # Audit log
     try:
         from src.audit_log import append_log
