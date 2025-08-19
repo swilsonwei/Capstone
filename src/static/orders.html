@@ -51,7 +51,7 @@
   <body>
     <div class="topbar">
       <div class="inner">
-        <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
+        <div class="brand"><span class="dot"></span> <span>Wilson App</span></div>
         <div class="top-actions"></div>
       </div>
     </div>
@@ -99,28 +99,38 @@
         if (typeof str !== 'string') return null;
         try { return JSON.parse(str); } catch { return null; }
       }
+      function sanitizeAgentText(text){
+        try{
+          let s = String(text || '');
+          s = s.replace(/\n?\s*-\s*\*\*[^*]+\*\*:\s*.*(?=\n|$)/g, '');
+          s = s.replace(/```[\s\S]*?```/g, '');
+          s = s.replace(/^[\t ]*[\[{].*$/gm, '');
+          if (s.includes(' - **')) s = s.split(' - **')[0];
+          s = s.replace(/\n{2,}/g, '\n').trim();
+          return s || String(text || '');
+        }catch{return String(text||'');}
+      }
       function toHumanReadable(data){
         let payload = data;
         if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
           const inner = typeof payload.result === 'string' ? (safeParseJSON(payload.result) || payload.result) : payload.result;
           payload = inner;
         }
-        if (typeof payload === 'string') return payload;
+        if (typeof payload === 'string') return sanitizeAgentText(payload);
         if (payload && typeof payload === 'object'){
           const lines = [];
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
           const createdId = payload.created_id || (payload.order && payload.order.id);
-          if (updated.length) lines.push(`Updated ${updated.length} order(s): ${updated.join(', ')}.`);
-          if (createdId) lines.push(`Created order ${createdId}.`);
+          if (updated.length) lines.push(`Updated ${updated.length} order(s).`);
+          if (createdId) lines.push(`Created order.`);
           if (Array.isArray(payload.orders) && payload.orders.length){
-            const list = payload.orders.map(o=>`${o.id} ($${Number(o.subtotal||0).toFixed(2)}; ${o.status||'n/a'})`).join('; ');
-            lines.push(`Selected orders: ${list}.`);
+            lines.push(`Selected ${payload.orders.length} order(s).`);
           }
           if (payload.notes) lines.push(String(payload.notes).endsWith('.') ? payload.notes : payload.notes + '.');
           if (payload.message && !lines.length) lines.push(String(payload.message));
-          return lines.length ? lines.join(' ') : JSON.stringify(data, null, 2);
+          return lines.length ? lines.join(' ') : 'Done.';
         }
-        return JSON.stringify(data, null, 2);
+        return 'Done.';
       }
       async function loadOrders(){
         const res = await fetch('/orders/data');
@@ -138,6 +148,21 @@
             await fetch('/orders/status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:o.id, status:sel.value})});
           };
           const pdfLink = `<a href="/orders/pdf/${o.id}" target="_blank">Open</a>`;
+          // Format created_at in US Eastern Time
+          function formatET(iso){
+            try{
+              if (!iso) return '';
+              const d = new Date(iso);
+              const fmt = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+              }).format(d);
+              return `${fmt} ET`;
+            }catch{ return iso||''; }
+          }
+          const createdAt = o.created_at || '';
+          const createdAtET = formatET(createdAt);
           tr.innerHTML = `
             <td><a href="/pricing/${o.id}">${o.id}</a></td>
             <td>${pdfLink}</td>
@@ -145,7 +170,7 @@
             <td>${o.customer || ''}</td>
             <td>$${Number(o.subtotal||0).toLocaleString('en-US', {maximumFractionDigits:0, minimumFractionDigits:0})}</td>
             <td></td>
-            <td>${o.created_at||''}</td>
+            <td title="${createdAt}">${createdAtET}</td>
           `;
           // Status column is index 5
           tr.children[5].appendChild(sel);

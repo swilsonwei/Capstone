@@ -173,7 +173,7 @@
   <body>
     <div class="topbar">
       <div class="inner">
-        <div class="brand"><span class="dot"></span> <span>CPQ Platform</span></div>
+        <div class="brand"><span class="dot"></span> <span>Wilson App</span></div>
         <div class="top-actions"></div>
       </div>
     </div>
@@ -221,7 +221,7 @@
           </div>
         </div>
       </div>
-      <div class="footer">© 2025 CPQ Platform</div>
+      <div class="footer">© 2025 Wilson App</div>
     </div>
     <div class="toasts" id="toasts"></div>
     <script>
@@ -285,28 +285,38 @@
         if (typeof str !== 'string') return null;
         try { return JSON.parse(str); } catch { return null; }
       }
+      function sanitizeAgentText(text){
+        try{
+          let s = String(text || '');
+          s = s.replace(/\n?\s*-\s*\*\*[^*]+\*\*:\s*.*(?=\n|$)/g, '');
+          s = s.replace(/```[\s\S]*?```/g, '');
+          s = s.replace(/^[\t ]*[\[{].*$/gm, '');
+          if (s.includes(' - **')) s = s.split(' - **')[0];
+          s = s.replace(/\n{2,}/g, '\n').trim();
+          return s || String(text || '');
+        }catch{return String(text||'');}
+      }
       function toHumanReadable(data){
         let payload = data;
         if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
           const inner = typeof payload.result === 'string' ? (safeParseJSON(payload.result) || payload.result) : payload.result;
           payload = inner;
         }
-        if (typeof payload === 'string') return payload;
+        if (typeof payload === 'string') return sanitizeAgentText(payload);
         if (payload && typeof payload === 'object'){
           const lines = [];
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
           const createdId = payload.created_id || (payload.order && payload.order.id);
-          if (updated.length) lines.push(`Updated ${updated.length} order(s): ${updated.join(', ')}.`);
-          if (createdId) lines.push(`Created order ${createdId}.`);
+          if (updated.length) lines.push(`Updated ${updated.length} order(s).`);
+          if (createdId) lines.push(`Created order.`);
           if (Array.isArray(payload.orders) && payload.orders.length){
-            const list = payload.orders.map(o=>`${o.id} ($${Number(o.subtotal||0).toFixed(2)}; ${o.status||'n/a'})`).join('; ');
-            lines.push(`Selected orders: ${list}.`);
+            lines.push(`Selected ${payload.orders.length} order(s).`);
           }
           if (payload.notes) lines.push(String(payload.notes).endsWith('.') ? payload.notes : payload.notes + '.');
           if (payload.message && !lines.length) lines.push(String(payload.message));
-          return lines.length ? lines.join(' ') : JSON.stringify(data, null, 2);
+          return lines.length ? lines.join(' ') : 'Done.';
         }
-        return JSON.stringify(data, null, 2);
+        return 'Done.';
       }
 
       runBtn.addEventListener('click', async () => {
