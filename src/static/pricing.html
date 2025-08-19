@@ -354,8 +354,13 @@
             const reject = document.createElement('button'); reject.textContent = 'Reject'; reject.className = 'secondary';
             actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
             bot.replaceWith(wrap);
-            accept.onclick = ()=>{ history.push({role:'user', content:'yes'}); runAgentBtn.click(); };
-            reject.onclick = ()=>{ history.push({role:'user', content:'no'}); runAgentBtn.click(); };
+            function finalize(choice){
+              try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
+              agentPromptEl.value = choice;
+              runAgentBtn.click();
+            }
+            accept.onclick = ()=> finalize('Yes');
+            reject.onclick = ()=> finalize('No');
           } else {
             bot.textContent = msg;
           }

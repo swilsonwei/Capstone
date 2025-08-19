@@ -591,6 +591,7 @@ async def agent_run(req: AgentRunRequest):
             "  → Also state in the same message that drawing images and Instagram uploads are not supported in this app.\n"
             "- Tone: Be neutral and helpful. Avoid accusatory phrasing (e.g., 'you requested twice'). Prefer phrasing like 'Just to confirm…' or 'Would you like me to…'.\n"
             "- Potential duplicates: If the user asks to add a line item that is similar to an existing one (e.g., another Service Fee $1,500), do NOT assume it's a mistake. Ask a short confirmation like: 'Add another Service Fee of $1,500 as a separate line item?' and wait for 'yes' before proceeding.\n"
+            "- However, if the user clearly asks to add a single line item with quantity and unit price (e.g., 'add a line item for service fee 1500'), treat it as unambiguous and execute without a follow-up. Only ask follow-ups when ambiguous or when the request includes out-of-scope actions.\n"
             "- When user asks to add a fee or line item to an existing order id, call add_items_to_order with that id. Do NOT clone the order.\n"
             "- When user asks to change/update the customer name for an existing order id, call update_order_customer with that id. Do NOT add a line item for customer.\n"
             "- For 'clone then add items' flows only when user explicitly asks for a variant/new order: call clone_order → (optionally) add_items_to_order.\n"

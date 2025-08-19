@@ -106,6 +106,8 @@
           s = s.replace(/```[\s\S]*?```/g, '');
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
           s = s.replace(/^[\t ]{0,3}#{1,6}[^\S\r\n]*(.*)$/gm, '$1');
+          // Remove generic bullet/numbered list lines to avoid long item dumps
+          s = s.replace(/^\s*(?:[-*]|\d+[.)])\s.*$/gm, '');
           s = s.split(/\n-\s\*\*/)[0];
           s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           s = s.replace(/\n{2,}/g, '\n').trim();
@@ -129,7 +131,20 @@
           const inner = typeof payload.result === 'string' ? (safeParseJSON(payload.result) || payload.result) : payload.result;
           payload = inner;
         }
-        if (typeof payload === 'string') return sanitizeAgentText(payload);
+        if (typeof payload === 'string'){
+          // Try to summarize multiple created orders succinctly
+          try{
+            const custs = [];
+            const ids = [];
+            const re = /Order for\s+([^()\n]+)\s*\(Order ID:\s*(OD-\d{5})\)/gi;
+            let m; const txt = String(payload);
+            while((m = re.exec(txt))){ custs.push(m[1].trim()); ids.push(m[2]); }
+            if (ids.length){
+              return `Created ${ids.length} order(s): ` + ids.map((id,i)=>`${id}${custs[i]?` (${custs[i]})`:''}`).join(', ') + '.';
+            }
+          }catch{}
+          return sanitizeAgentText(payload);
+        }
         if (payload && typeof payload === 'object'){
           const lines = [];
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
@@ -223,20 +238,31 @@
             const reject = document.createElement('button'); reject.textContent = 'Reject'; reject.className = 'secondary';
             actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
             bot.replaceWith(wrap);
-            accept.onclick = ()=>{ history.push({role:'user', content:'yes'}); runBtn.click(); };
-            reject.onclick = ()=>{ history.push({role:'user', content:'no'}); runBtn.click(); };
+            function finalize(choice){
+              try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
+              history.push({role:'user', content: choice});
+              runBtn.click();
+            }
+            accept.onclick = ()=> finalize('yes');
+            reject.onclick = ()=> finalize('no');
           } else {
             bot.textContent = msg;
           }
           history.push({ role: 'assistant', content: msg });
           // Persist the assistant message so backend can include it with short confirmations
           try { rememberAssistantMessage(msg); } catch {}
-          // Refresh only if the agent likely mutated orders
+          // Refresh if the agent likely mutated orders (handles structured and plain-text responses)
           try {
             const r = extractAgentResult(data);
-            if (r && ((Array.isArray(r.updated_ids) && r.updated_ids.length) || r.order)){
-              await loadOrders();
+            let shouldRefresh = false;
+            if (r && ((Array.isArray(r.updated_ids) && r.updated_ids.length) || r.order)) shouldRefresh = true;
+            if (!shouldRefresh){
+              const s1 = (typeof data === 'string') ? data : '';
+              const s2 = (data && typeof data.result === 'string') ? data.result : '';
+              const s = (s1 + ' ' + s2).toLowerCase();
+              if (/\b(updated|changed|created|added|deleted|status|customer)\b/.test(s)) shouldRefresh = true;
             }
+            if (shouldRefresh) await loadOrders();
           } catch {}
         } catch (e) {
           bot.textContent = 'Error: ' + e;
