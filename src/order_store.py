@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from uuid import uuid4
 
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -312,11 +313,14 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
             unit_cost = 0.0
         line_total = qty * unit_cost
         subtotal += line_total
+        # Preserve or assign a stable item_id for future PATCH ops
+        item_id = it.get("item_id") or it.get("id") or str(uuid4())
         normalized.append({
             "item": name,
             "quantity": qty,
             "unit_cost": unit_cost,
             "line_total": line_total,
+            "item_id": item_id,
         })
     target["items"] = normalized
     target["items_count"] = len(normalized)
@@ -361,6 +365,79 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
                         pass
     # API layer is the single source of audit logs for item updates
     return target
+
+
+def patch_items(order_id: str, ops: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+    """Apply granular item operations to an order.
+
+    ops: list of { op: 'add'|'update'|'remove', item_id?: str, item?: str, quantity?: number, unit_cost?: number }
+    - add: requires item, quantity, unit_cost
+    - update: requires item_id and fields to change
+    - remove: requires item_id; if missing, falls back to name contains match
+    """
+    current = get_order(order_id)
+    if not current:
+        return None
+    working = list(current.get("items") or [])
+
+    def norm(s: str) -> str:
+        s = (s or "").lower().strip()
+        import re as _re
+        s = _re.sub(r"[^a-z0-9\s&'\.-]", "", s)
+        s = _re.sub(r"\s+", " ", s)
+        return s
+
+    for op in ops or []:
+        kind = str(op.get("op", "")).lower()
+        if kind == "add":
+            item = str(op.get("item", "")).strip()
+            try:
+                qty = float(op.get("quantity", 0))
+            except Exception:
+                qty = 0.0
+            try:
+                unit = float(op.get("unit_cost", 0))
+            except Exception:
+                unit = 0.0
+            line = qty * unit
+            working.append({
+                "item": item,
+                "quantity": qty,
+                "unit_cost": unit,
+                "line_total": line,
+                "item_id": str(uuid4()),
+            })
+        elif kind == "update":
+            tid = op.get("item_id") or op.get("id")
+            for it in working:
+                if tid and str(it.get("item_id")) == str(tid):
+                    if op.get("item") is not None:
+                        it["item"] = str(op.get("item"))
+                    if op.get("quantity") is not None:
+                        try:
+                            it["quantity"] = float(op.get("quantity", 0))
+                        except Exception:
+                            pass
+                    if op.get("unit_cost") is not None:
+                        try:
+                            it["unit_cost"] = float(op.get("unit_cost", 0))
+                        except Exception:
+                            pass
+                    it["line_total"] = float(it.get("quantity", 0)) * float(it.get("unit_cost", 0))
+                    break
+        elif kind == "remove":
+            tid = op.get("item_id") or op.get("id")
+            name = norm(str(op.get("item", "")))
+            new_list = []
+            for it in working:
+                if tid and str(it.get("item_id")) == str(tid):
+                    continue
+                if name and (name in norm(str(it.get("item", ""))) or norm(str(it.get("item", ""))) in name):
+                    continue
+                new_list.append(it)
+            working = new_list
+
+    return update_items(order_id, working)
 
 
 def update_customer(order_id: str, customers: str, prompt: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any] | None:

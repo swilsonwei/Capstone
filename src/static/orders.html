@@ -108,6 +108,10 @@
           s = s.replace(/^[\t ]{0,3}#{1,6}[^\S\r\n]*(.*)$/gm, '$1');
           // Remove generic bullet/numbered list lines to avoid long item dumps
           s = s.replace(/^\s*(?:[-*]|\d+[.)])\s.*$/gm, '');
+          // Remove boilerplate lead-ins like "Here are the details:" or "Here is a summary:" or "Details:"
+          s = s.replace(/\bhere\s+(?:are|is)\s+the\s+details:\s*/gi, '');
+          s = s.replace(/\bhere(?:’|'|\s+is)\s+a\s+summary:\s*/gi, '');
+          s = s.replace(/(^|\n)\s*details:\s*/gi, '$1');
           s = s.split(/\n-\s\*\*/)[0];
           s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           s = s.replace(/\n{2,}/g, '\n').trim();
@@ -227,7 +231,7 @@
           const msg = toHumanReadable(data);
           // If the assistant message asks a yes/no style clarification, render inline Accept/Reject buttons
           const lower = String(msg||'').toLowerCase();
-          const looksYN = /\bfollow-up\b|\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
+          const looksYN = /\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
           if (looksYN){
             const wrap = document.createElement('div');
             wrap.className = 'bubble bot';
@@ -240,7 +244,8 @@
             bot.replaceWith(wrap);
             function finalize(choice){
               try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
-              history.push({role:'user', content: choice});
+              // Set the prompt box so the next run captures and displays the user's choice
+              promptEl.value = choice;
               runBtn.click();
             }
             accept.onclick = ()=> finalize('yes');

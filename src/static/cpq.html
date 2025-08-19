@@ -346,7 +346,7 @@
           const data = await res.json();
           const msg = toHumanReadable(data);
           const lower = String(msg||'').toLowerCase();
-          const looksYN = /\bfollow-up\b|\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
+          const looksYN = /\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
           if (looksYN){
             const wrap = document.createElement('div');
             wrap.className = 'bubble bot';
@@ -358,7 +358,7 @@
             bot.replaceWith(wrap);
             function finalize(choice){
               try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
-              history.push({role:'user', content: choice});
+              promptEl.value = choice;
               runBtn.click();
             }
             accept.onclick = ()=> finalize('yes');

@@ -71,9 +71,9 @@
       .stat-card { border: 1px solid var(--border); background: var(--surface); border-radius: 14px; padding: 14px; box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
       .stat-card::before { content: ""; position: absolute; inset: 0; background: rgba(37,99,235,.06); opacity: .7; pointer-events:none; }
       .stat-card .inner { position: relative; }
-      .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; letter-spacing: .2px; }
+      .stat-card .label { font-size: 14px; color: var(--muted); margin-bottom: 8px; letter-spacing: .2px; }
       .stat-card .value { font-size: 22px; font-weight: 800; color: var(--text); }
-      .stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+      .stat-card .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
       .stat-quoted { border-left: 4px solid var(--accent); }
       .stat-sent { border-left: 4px solid var(--accent-600); }
       .stat-received { border-left: 4px solid var(--accent-700); }
@@ -82,7 +82,8 @@
       @media (min-width: 720px) { .customers-grid { grid-template-columns: repeat(3, 1fr); } }
       /* Reuse stat-card styling for top customers */
       .section-break { margin-top: 18px; }
-      /* Ensure top customers cards get the same subtle blue overlay as status cards */
+      /* Ensure top customers cards match status cards */
+      .customers-grid .stat-card { border-left: 4px solid var(--accent); }
       .customers-grid .stat-card::before { content: ""; position: absolute; inset: 0; background: rgba(37,99,235,.06); opacity: .7; pointer-events:none; }
     </style>
   </head>
@@ -168,6 +169,8 @@
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
           // Strip markdown headings like #, ##, ### while keeping content
           s = s.replace(/^[\t ]{0,3}#{1,6}[^\S\r\n]*(.*)$/gm, '$1');
+          // Remove generic bullet/numbered list lines
+          s = s.replace(/^\s*(?:[-*]|\d+[.)])\s.*$/gm, '');
           // If the message includes a lead sentence followed by details on new bullet lines, keep only lead
           s = s.split(/\n-\s\*\*/)[0];
           // Strip any remaining bold markdown wrappers
@@ -189,7 +192,19 @@
           const inner = typeof payload.result === 'string' ? (safeParseJSON(payload.result) || payload.result) : payload.result;
           payload = inner;
         }
-        if (typeof payload === 'string') return sanitizeAgentText(payload);
+        if (typeof payload === 'string'){
+          // Summarize multi-clone results like "Order for X (Order ID: OD-00042)"
+          try{
+            const custs = []; const ids = [];
+            const re = /Order for\s+([^()\n]+)\s*\(Order ID:\s*(OD-\d{5})\)/gi;
+            let m; const txt = String(payload);
+            while((m = re.exec(txt))){ custs.push(m[1].trim()); ids.push(m[2]); }
+            if (ids.length){
+              return `Created ${ids.length} order(s): ` + ids.map((id,i)=>`${id}${custs[i]?` (${custs[i]})`:''}`).join(', ') + '.';
+            }
+          }catch{}
+          return sanitizeAgentText(payload);
+        }
         if (payload && typeof payload === 'object'){
           const lines = [];
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
@@ -225,7 +240,7 @@
           const msg = toHumanReadable(data);
           // Render Accept/Reject buttons for yes/no style follow-ups
           const lower = String(msg||'').toLowerCase();
-          const looksYN = /\bfollow-up\b|\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
+          const looksYN = /\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
           if (looksYN){
             const wrap = document.createElement('div');
             wrap.className = 'bubble bot';
@@ -235,8 +250,13 @@
             const reject = document.createElement('button'); reject.textContent='Reject'; reject.className='secondary';
             actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
             bot.replaceWith(wrap);
-            accept.onclick = ()=>{ promptEl.value='yes'; history.push({role:'user', content:'yes'}); runBtn.click(); };
-            reject.onclick = ()=>{ promptEl.value='no'; history.push({role:'user', content:'no'}); runBtn.click(); };
+            function finalize(choice){
+              try{ accept.disabled = true; reject.disabled = true; }catch{}
+              promptEl.value = choice;
+              runBtn.click();
+            }
+            accept.onclick = ()=> finalize('yes');
+            reject.onclick = ()=> finalize('no');
           } else {
             bot.textContent = msg;
           }

@@ -23,6 +23,7 @@ from src.constants import (
 from mcp_use import MCPClient, MCPAgent
 from langchain_openai import ChatOpenAI
 from src.order_store import create_order, list_orders, update_status, get_order, update_items, update_customer
+from src.order_store import patch_items
 from src.audit_log import append_log, list_logs
 from src.mcp_client import main as mcp_client_run
 import re
@@ -580,15 +581,15 @@ async def agent_run(req: AgentRunRequest):
             "- Handle errors pragmatically: if an action fails (e.g., not found), re-synchronize by listing relevant data and retry once if appropriate; otherwise report succinctly.\n"
             "- Act when tools exist; do not claim lack of access. If no suitable tool exists, explain limitations briefly.\n"
             "- Scope guardrails: Only perform actions that map directly to available MCP tools/API endpoints in this app. Never claim or simulate capabilities that are not exposed here.\n"
-            "- Mixed-scope requests: If a request contains both supported and unsupported parts, DO NOT execute any action yet. First, ask ONE concise follow-up to confirm proceeding with the supported part(s), then await explicit user approval (e.g., 'yes') before calling any tools. Begin the reply with 'Follow-up:' so the user understands it's a clarification.\n"
+            "- Mixed-scope requests: If a request contains both supported and unsupported parts, DO NOT execute any action yet. In a single reply, politely decline the out-of-scope part (e.g., 'I can't upload a photo in this app.') and then ask ONE concise confirmation about the supported action(s): 'I can update the customer and add a $1,500 service fee to this order. Proceed?'. Await explicit approval (e.g., 'yes') before calling tools.\n"
             "- Unsupported examples (decline politely): drawing/creating images, posting to Instagram or other external sites, sending emails/Slack, web browsing, payment processing, user/account administration.\n"
             "  When declining, say: 'We’re sorry, but we can’t do that in this app.' Offer a closest in-scope alternative only if helpful.\n"
             "- If the user asks to export to Excel/CSV or similar external operations, acknowledge limitation and ask a constructive follow-up like: 'Follow-up: I can list or summarize all Pfizer orders, compute totals, or change statuses. What would you like me to do with these orders?'\n"
             "- Clarification & confirmation: If the mapping to a tool is ambiguous or could impact multiple records, ask ONE concise follow-up question and await the user's confirmation before proceeding.\n"
             "- Example: If asked 'create a quote like OD-37 and draw pictures of deer and elephant and upload to my Instagram':\n"
-            "  → Ask: 'Follow-up: I can create a new quote like OD-37. Proceed?'\n"
+            "  → Reply: 'I can create a new quote like OD-37. I can't create images or upload to Instagram in this app. Proceed with creating the quote?'\n"
             "  → After user's 'yes', perform clone_order/create_variant_order.\n"
-            "  → Also state in the same message that drawing images and Instagram uploads are not supported in this app.\n"
+            "  → Always state out-of-scope limitations in the same message as the confirmation question.\n"
             "- Tone: Be neutral and helpful. Avoid accusatory phrasing (e.g., 'you requested twice'). Prefer phrasing like 'Just to confirm…' or 'Would you like me to…'.\n"
             "- Potential duplicates: If the user asks to add a line item that is similar to an existing one (e.g., another Service Fee $1,500), do NOT assume it's a mistake. Ask a short confirmation like: 'Add another Service Fee of $1,500 as a separate line item?' and wait for 'yes' before proceeding.\n"
             "- However, if the user clearly asks to add a single line item with quantity and unit price (e.g., 'add a line item for service fee 1500'), treat it as unambiguous and execute without a follow-up. Only ask follow-ups when ambiguous or when the request includes out-of-scope actions.\n"
@@ -601,10 +602,12 @@ async def agent_run(req: AgentRunRequest):
             "  } . Do NOT send free-text or nested strings. You may omit line_total; the server computes it.\n"
             "- Accept synonyms in user input (qty, q, price, unit price), but ALWAYS send the API fields as quantity and unit_cost in the final tool call.\n"
             "- Omit optional fields when not set. Do NOT send null for optional string fields (e.g., omit 'prompt' instead of sending null).\n"
+            "- Use patch_order_items for removing or editing existing line items. Do NOT use negative quantities in add_items_to_order; negatives are deprecated and only kept for backward compatibility.\n"
             f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
             "- For PDF preview of an existing order, call orders_pdf (GET /orders/pdf/{order_id}). Only call agent_quote_pdf when you provide a body with items and subtotal.\n"
             "- Output style: Write for end users in brief, readable sentences or 2–6 short bullets. Avoid code blocks and JSON unless explicitly requested.\n"
             "  Present key figures clearly (e.g., Today total: $X; Yesterday total: $Y), then 1–3 bullets with highlights. Use US currency formatting.\n"
+            "- When a user asks for 'details' about a specific order (e.g., 'more info on OD-00028'), fetch /pricing/data/{order_id} and present: customer, status, subtotal, and the first 3–5 line items (name, qty, unit cost). Offer to open the PDF if needed.\n"
         )
         # Build conversational context from history
         convo = []
@@ -1400,6 +1403,17 @@ async def orders_status_bulk(update: OrdersStatusBulkUpdate, _auth=Depends(requi
             res = update_status(effective_id, update.status, prompt=effective_prompt, tool_name="update_orders_status_bulk")
             if res:
                 updated_ids.append(effective_id)
+                # Emit a per-order status update log for clearer audit trails
+                try:
+                    append_log({
+                        "type": "order_status_updated",
+                        "order_id": effective_id,
+                        "details": {"status": update.status},
+                        "prompt": _audit_prompt_context(effective_prompt),
+                        "tool_name": "update_order_status",
+                    })
+                except Exception:
+                    pass
         except Exception:
             # continue best-effort
             pass
@@ -1616,6 +1630,37 @@ async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_aut
             return JSONResponse(status_code=404, content={"error": "order not found"})
         base_items = list(existing.get("items") or [])
         add_items, _ = _normalize_items(payload.additions)
+        # Interpret negative quantities as removal requests by item name (robust fallback if the agent attempted removal via -1)
+        removals = [str(it.get("item", "")).strip() for it in add_items if float(it.get("quantity", 0)) < 0]
+        def _norm_name(x: str) -> str:
+            x = (x or "").lower().strip()
+            import re as _re
+            x = _re.sub(r"[^a-z0-9\s&'\.-]", "", x)
+            x = _re.sub(r"\s+", " ", x)
+            return x
+        if removals:
+            removal_norms = [_norm_name(n) for n in removals if n]
+            filtered = []
+            for it in base_items:
+                name_n = _norm_name(str(it.get("item", "")))
+                # Drop if any removal token matches by containment either way
+                to_remove = any((r in name_n) or (name_n in r) for r in removal_norms if r)
+                if not to_remove:
+                    filtered.append(it)
+            base_items = filtered
+            # Emit deprecation notice in audit logs so we can phase this out later
+            try:
+                append_log({
+                    "type": "removal_via_add_items_deprecated",
+                    "order_id": payload.order_id,
+                    "details": {"removed_by_name": removals},
+                    "prompt": _audit_prompt_context(effective_prompt),
+                    "tool_name": "add_items_to_order",
+                })
+            except Exception:
+                pass
+        # Keep only non-negative additions for merge
+        add_items = [it for it in add_items if float(it.get("quantity", 0)) >= 0 and float(it.get("unit_cost", 0)) >= 0]
         merged = base_items + add_items
         effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
         updated = update_items(payload.order_id, merged, prompt=effective_prompt, tool_name="add_items_to_order")
@@ -1626,6 +1671,7 @@ async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_aut
             "order_id": payload.order_id,
             "details": {
                 "added": add_items,
+                "removed": removals,
                 "new_items_count": len(updated.get("items", [])),
                 "items_count": len(updated.get("items", [])),
                 "subtotal": updated.get("subtotal", 0)
@@ -1643,6 +1689,36 @@ class CreateVariantRequest(BaseModel):
     additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
     status: str = Field(default="Quoted", description="Status for the new order (Quoted|Sent|Received)")
     prompt: Optional[str] = None
+class PatchOp(BaseModel):
+    op: str = Field(..., description="add | update | remove")
+    item_id: Optional[str] = None
+    item: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_cost: Optional[float] = None
+
+class PatchItemsRequest(BaseModel):
+    order_id: str
+    ops: list[PatchOp]
+    prompt: Optional[str] = None
+
+@app.patch("/orders/items", operation_id="patch_order_items")
+async def patch_order_items(payload: PatchItemsRequest, _auth=Depends(require_auth)) -> Dict:
+    """Granular edit API for line items: add, update, remove by item_id.
+
+    Body: { order_id, ops: [ { op, item_id?, item?, quantity?, unit_cost? }, ... ] }
+    """
+    effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
+    updated = patch_items(payload.order_id, [op.dict() for op in payload.ops])
+    if not updated:
+        return JSONResponse(status_code=404, content={"error": "order not found or no changes applied"})
+    append_log({
+        "type": "order_items_patched",
+        "order_id": payload.order_id,
+        "details": {"ops": [op.dict() for op in payload.ops], "items_count": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)},
+        "prompt": _audit_prompt_context(effective_prompt),
+        "tool_name": "patch_order_items",
+    })
+    return {"order": updated}
 
 
 @app.post("/orders/variant", operation_id="create_variant_order")

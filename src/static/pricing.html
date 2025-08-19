@@ -261,6 +261,8 @@
           // Remove residual bold wrappers
           s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           s = s.replace(/\n{2,}/g, '\n').trim();
+          // Prefer a concise complete statement without empty labels
+          s = s.replace(/\b(?:current\s+order\s+summary|remaining\s+items)\s*:\s*/gi, '').trim();
           // Keep only the first sentence for brevity
           const sentence = s.match(/^.*?[.!?](?:\s|$)/);
           if (sentence && sentence[0]) s = sentence[0].trim();
@@ -343,7 +345,7 @@
           const data = await res.json();
           const msg = toHumanReadable(data);
           const lower = String(msg||'').toLowerCase();
-          const looksYN = /\bfollow-up\b|\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
+          const looksYN = /\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
           if (looksYN){
             const wrap = document.createElement('div');
             wrap.className = 'bubble bot';
