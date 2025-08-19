@@ -281,6 +281,12 @@
         if (typeof payload === 'string') return sanitizeAgentText(payload);
         if (payload && typeof payload === 'object'){
           const lines = [];
+          // If a single order object is returned (e.g., status/customer updates), show a concise confirmation
+          const singleOrder = (payload.order && payload.order.id) ? payload.order : ((payload.id && (payload.status || payload.customer)) ? payload : null);
+          if (singleOrder && singleOrder.id){
+            if (singleOrder.status) lines.push(`Updated ${singleOrder.id} to ${singleOrder.status}.`);
+            if (singleOrder.customer) lines.push(`Customer set to ${singleOrder.customer}.`);
+          }
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
           const createdId = payload.created_id || (payload.order && payload.order.id);
           if (updated.length) lines.push(`Updated ${updated.length} order(s).`);
@@ -298,6 +304,7 @@
       const agentPromptEl = document.getElementById('agentPrompt');
       const chatEl = document.getElementById('chat');
       let history = [];
+      function scrollChatToBottom(){ try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{} }
       function extractAgentResult(payload){
         try{
           if (payload && Object.prototype.hasOwnProperty.call(payload, 'result')){
@@ -331,10 +338,10 @@
       }
       runAgentBtn.addEventListener('click', async () => {
         const text = agentPromptEl.value;
-        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
+        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user); scrollChatToBottom();
         history.push({ role: 'user', content: text });
         agentPromptEl.value = '';
-        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
+        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot); scrollChatToBottom();
         // Busy state
         const prevLabel = runAgentBtn.textContent;
         runAgentBtn.disabled = true;
@@ -356,6 +363,7 @@
             const reject = document.createElement('button'); reject.textContent = 'Reject'; reject.className = 'secondary';
             actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
             bot.replaceWith(wrap);
+            try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{}
             function finalize(choice){
               try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
               agentPromptEl.value = choice;
@@ -365,6 +373,7 @@
             reject.onclick = ()=> finalize('No');
           } else {
             bot.textContent = msg;
+            try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{}
           }
           history.push({ role: 'assistant', content: msg });
           try { rememberAssistantMessage(msg); } catch {}

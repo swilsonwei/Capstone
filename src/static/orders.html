@@ -151,6 +151,11 @@
         }
         if (payload && typeof payload === 'object'){
           const lines = [];
+          // If a single order dict is returned (e.g., after status/customer update), emit a concise confirmation
+          const singleOrder = (payload.order && payload.order.id) ? payload.order : ((payload.id && payload.status) ? payload : null);
+          if (singleOrder && singleOrder.id && singleOrder.status){
+            lines.push(`Updated ${singleOrder.id} to ${singleOrder.status}.`);
+          }
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
           const createdId = payload.created_id || (payload.order && payload.order.id);
           if (updated.length) lines.push(`Updated ${updated.length} order(s).`);
@@ -214,13 +219,14 @@
       const runBtn = document.getElementById('run');
       const promptEl = document.getElementById('prompt');
       const chatEl = document.getElementById('chat');
+      function scrollChatToBottom(){ try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{} }
       let history = [];
       runBtn.addEventListener('click', async () => {
         const text = promptEl.value;
-        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
+        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user); scrollChatToBottom();
         history.push({ role: 'user', content: text });
         promptEl.value = '';
-        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
+        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot); scrollChatToBottom();
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
@@ -242,6 +248,7 @@
             const reject = document.createElement('button'); reject.textContent = 'Reject'; reject.className = 'secondary';
             actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
             bot.replaceWith(wrap);
+            try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{}
             function finalize(choice){
               try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
               // Set the prompt box so the next run captures and displays the user's choice
@@ -252,6 +259,7 @@
             reject.onclick = ()=> finalize('no');
           } else {
             bot.textContent = msg;
+            try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{}
           }
           history.push({ role: 'assistant', content: msg });
           // Persist the assistant message so backend can include it with short confirmations

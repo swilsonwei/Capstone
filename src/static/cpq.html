@@ -229,6 +229,7 @@
       const promptEl = document.getElementById('prompt');
       const chatEl = document.getElementById('chat');
       let history = [];
+      function scrollChatToBottom(){ try{ chatEl.scrollTop = chatEl.scrollHeight; }catch{} }
       const uploadForm = document.getElementById('uploadForm');
       const uploadBtn = document.getElementById('uploadBtn');
       // Ensure clicking the Upload button opens the picker if no file is chosen yet
@@ -314,6 +315,12 @@
         if (typeof payload === 'string') return sanitizeAgentText(payload);
         if (payload && typeof payload === 'object'){
           const lines = [];
+          // Concise confirmation for single-order updates
+          const singleOrder = (payload.order && payload.order.id) ? payload.order : ((payload.id && (payload.status || payload.customer)) ? payload : null);
+          if (singleOrder && singleOrder.id){
+            if (singleOrder.status) lines.push(`Updated ${singleOrder.id} to ${singleOrder.status}.`);
+            if (singleOrder.customer) lines.push(`Customer set to ${singleOrder.customer}.`);
+          }
           const updated = Array.isArray(payload.updated_ids) ? payload.updated_ids : [];
           const createdId = payload.created_id || (payload.order && payload.order.id);
           if (updated.length) lines.push(`Updated ${updated.length} order(s).`);
@@ -331,12 +338,12 @@
       runBtn.addEventListener('click', async () => {
         // Append user message above the prompt (persisting panel)
         const text = promptEl.value;
-        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user);
+        const user = document.createElement('div'); user.className='bubble user'; user.textContent = text; chatEl.appendChild(user); scrollChatToBottom();
         // Track in session history
         history.push({ role: 'user', content: text });
         // Clear prompt
         promptEl.value = '';
-        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot);
+        const bot = document.createElement('div'); bot.className='bubble bot'; bot.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span>'; chatEl.appendChild(bot); scrollChatToBottom();
         try {
           const res = await fetch('/agent/run', {
             method: 'POST',
@@ -356,6 +363,7 @@
             const reject = document.createElement('button'); reject.textContent='Reject'; reject.className='secondary';
             actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
             bot.replaceWith(wrap);
+            scrollChatToBottom();
             function finalize(choice){
               try{ accept.disabled = true; reject.disabled = true; actions.remove(); }catch{}
               promptEl.value = choice;
@@ -364,7 +372,7 @@
             accept.onclick = ()=> finalize('yes');
             reject.onclick = ()=> finalize('no');
           } else {
-            bot.textContent = msg;
+            bot.textContent = msg; scrollChatToBottom();
           }
           history.push({ role: 'assistant', content: msg });
           // No page reloads here; CPQ agent actions shouldn't disrupt any pending user input

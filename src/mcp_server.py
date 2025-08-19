@@ -578,9 +578,9 @@ async def agent_run(req: AgentRunRequest):
                 "- Always reason and fetch relevant context (e.g., list/search) before modifying data.\n"
 
                 "## Safety Rules\n"
-                "- Avoid modifying source entities unless explicitly requested.\n"
+                "- Avoid modifying source entities unless requested.\n"
                 "- Ensure idempotency: don’t duplicate actions.\n"
-                "- Never perform actions outside defined tool contracts.\n"
+              #  "- Never perform actions outside defined tool contracts.\n"
                 "- Decline explicit/sexual content, pornography, graphic violence, self-harm, or illegal activity requests: 'We can’t do that in this app.' Offer in-scope alternatives if helpful.\n"
 
                 "## Confirmation & Scope\n"
@@ -590,10 +590,14 @@ async def agent_run(req: AgentRunRequest):
 
                 "## Tool Mapping Patterns\n"
                 "- add_items_to_order: adding new line items to an order\n"
+                "- patch_order_items: removing or editing existing line items\n"
                 "- update_order_customer: updating customer details\n"
                 "- clone_order: for explicit requests to duplicate or variant an order\n"
-                "- list_orders: recent orders\n"
+                "- list_orders: sort through orders, for example, recent orders, or orders by customer / subtotal\n"
+                "- update_orders_status_bulk: updating the status of multiple orders\n"
                 "- orders_pdf: preview an existing order\n"
+                "- search_for_documents: searching for documents in Milvus\n"
+                "- add_document: adding a document to Milvus\n"
 
                 "## Formatting & Output\n"
                 "- Always use JSON format matching tool schemas. Omit optional fields when unset.\n"
@@ -1483,13 +1487,60 @@ async def orders_stats():
 
 
 @app.get("/orders/top", operation_id="identify_orders")
-async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
-    """Identify highest-cost orders (for MCP usage). Optionally filter by status.
+async def orders_top(
+    limit: int = 3,
+    include_status: str = "any",
+    sort_by: str = "subtotal",  # subtotal | created_at
+    direction: str = "desc",    # desc | asc
+    customer: Optional[str] = None,
+    relative: Optional[str] = None,  # e.g., last_10_minutes | yesterday | today | last_24_hours
+    since: Optional[str] = None,     # ISO8601
+    until: Optional[str] = None,     # ISO8601
+) -> Dict:
+    """Identify orders based on flexible filters and sorting.
 
     - limit: number of orders to return (default 3)
-    - include_status: one of "any", "open" (Quoted/Sent), or a specific status
+    - include_status: "any", "open" (Quoted/Sent), or specific status (Quoted|Sent|Received)
+    - sort_by: "subtotal" (default) or "created_at"
+    - direction: "desc" (default) or "asc"
+    - customer: case-insensitive substring filter on customer name
+    - relative: quick time windows: "last_10_minutes", "last_24_hours", "today", "yesterday"
+    - since/until: optional ISO8601 timestamps to bound created_at
     """
+    from datetime import datetime, timedelta, timezone
+
+    def parse_iso(dt: Optional[str]) -> Optional[datetime]:
+        if not dt:
+            return None
+        try:
+            return datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    now = datetime.now(timezone.utc)
+    start: Optional[datetime] = parse_iso(since)
+    end: Optional[datetime] = parse_iso(until)
+
+    if relative:
+        rel = str(relative).lower().strip()
+        if rel == "last_10_minutes":
+            start = now - timedelta(minutes=10)
+            end = now
+        elif rel == "last_24_hours":
+            start = now - timedelta(hours=24)
+            end = now
+        elif rel == "today":
+            # Start of current UTC day
+            start = datetime(year=now.year, month=now.month, day=now.day, tzinfo=timezone.utc)
+            end = now
+        elif rel == "yesterday":
+            y_start = datetime(year=now.year, month=now.month, day=now.day, tzinfo=timezone.utc) - timedelta(days=1)
+            start = y_start
+            end = y_start + timedelta(days=1)
+
     all_orders = list_orders()
+
+    # Status filter
     if include_status == "open":
         candidates = [o for o in all_orders if o.get("status") in ("Quoted", "Sent")]
     elif include_status in ("Quoted", "Sent", "Received"):
@@ -1497,24 +1548,63 @@ async def orders_top(limit: int = 3, include_status: str = "any") -> Dict:
     else:
         candidates = all_orders
 
-    # Sort by subtotal descending and take top N
-    top = sorted(candidates, key=lambda o: float(o.get("subtotal", 0) or 0), reverse=True)[: max(1, limit)]
+    # Customer filter
+    if customer:
+        c_norm = str(customer).lower().strip()
+        candidates = [o for o in candidates if c_norm in str(o.get("customer", "")).lower()]
 
-    # Minimal projection for LLM consumption
+    # Time window filter
+    if start or end:
+        filt: list = []
+        for o in candidates:
+            try:
+                created = o.get("created_at")
+                if not created:
+                    continue
+                dt = parse_iso(created)
+                if not dt:
+                    continue
+                if start and dt < start:
+                    continue
+                if end and dt > end:
+                    continue
+                filt.append(o)
+            except Exception:
+                # If parsing fails, skip time filtering for that row
+                pass
+        candidates = filt
+
+    # Sorting
+    key_func = (lambda o: float(o.get("subtotal", 0) or 0)) if sort_by == "subtotal" else (
+        lambda o: parse_iso(o.get("created_at") or "") or datetime.min.replace(tzinfo=timezone.utc)
+    )
+    reverse = str(direction).lower() != "asc"
+    ordered = sorted(candidates, key=key_func, reverse=reverse)
+    top = ordered[: max(1, limit)]
+
     result = [
         {
             "id": o.get("id"),
             "subtotal": float(o.get("subtotal", 0) or 0),
             "status": o.get("status"),
             "source_file": o.get("source_file"),
+            "customer": o.get("customer", ""),
+            "created_at": o.get("created_at"),
         }
         for o in top
     ]
 
-    # Audit trail (GET)
     append_log({
         "type": "orders_identified_top",
-        "details": {"limit": limit, "include_status": include_status, "ids": [r["id"] for r in result]},
+        "details": {
+            "limit": limit,
+            "include_status": include_status,
+            "sort_by": sort_by,
+            "direction": direction,
+            "customer": customer,
+            "relative": relative,
+            "ids": [r["id"] for r in result],
+        },
         "route": "/orders/top",
         "method": "GET",
         "status": 200,
