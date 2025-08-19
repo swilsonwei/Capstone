@@ -241,7 +241,8 @@ def _extract_customer_from_notes(notes: str) -> Optional[str]:
                 cand = m.group(1).strip()
                 cand = re.sub(r"^\**|\**$", "", cand).strip()
                 cand = re.sub(r"^`+|`+$", "", cand).strip()
-                cand = re.split(r"[\|•#\r\n]", cand)[0].strip()
+                # Stop at common delimiters and trailing sections like Pricing
+                cand = re.split(r"(?:\s[–—-]\s|[\|•#/:;,\r\n]|\s+Pricing:?|\s+PRICING:?|\s+pricing:?)", cand)[0].strip()
                 if 1 <= len(cand) <= 120:
                     return cand
         # 2) Conversational hints (e.g., "assume it's Pfizer")
@@ -263,6 +264,53 @@ def _extract_customer_from_notes(notes: str) -> Optional[str]:
         return None
     except Exception:
         return None
+
+
+def _canonicalize_customer(name: Optional[str]) -> Optional[str]:
+    """Map a candidate customer name to an existing known customer label if present.
+
+    Preference order: exact (case-insensitive) match of full string among existing orders; else
+    match ignoring punctuation and collapsing spaces; else return input name.
+    """
+    try:
+        if not name:
+            return name
+        cand = str(name).strip()
+        if not cand:
+            return name
+        # Collect known customers from current orders
+        existing = []
+        try:
+            for o in list_orders():
+                c = (o.get("customer") or "").strip()
+                if c:
+                    existing.append(c)
+        except Exception:
+            existing = []
+        if not existing:
+            return name
+        def norm(x: str) -> str:
+            x = x.lower().strip()
+            x = re.sub(r"[^a-z0-9\s&'\.-]", "", x)
+            x = re.sub(r"\s+", " ", x)
+            return x
+        cand_n = norm(cand)
+        # Exact case-insensitive
+        for k in existing:
+            if cand.lower() == k.lower():
+                return k
+        # Normalized equality
+        for k in existing:
+            if norm(k) == cand_n:
+                return k
+        # Substring containment heuristic
+        for k in existing:
+            nk = norm(k)
+            if cand_n in nk or nk in cand_n:
+                return k
+        return name
+    except Exception:
+        return name
 
 # Global prompt cache to bridge across separate HTTP requests initiated by the agent
 LAST_AGENT_PROMPT: str | None = None
@@ -490,6 +538,11 @@ async def agent_run(req: AgentRunRequest):
             "- When user asks to add a fee or line item to an existing order id, call add_items_to_order with that id. Do NOT clone the order.\n"
             "- When user asks to change/update the customer name for an existing order id, call update_order_customer with that id. Do NOT add a line item for customer.\n"
             "- For 'clone then add items' flows only when user explicitly asks for a variant/new order: call clone_order → (optionally) add_items_to_order.\n"
+            "- STRICT FORMAT for add_items_to_order: additions must be a JSON array of objects with exact keys { item: string, quantity: number, unit_cost: number }. Example: {\n"
+            "    \"order_id\": \"<CURRENT_ORDER_ID>\",\n"
+            "    \"additions\": [{ \"item\": \"Scientist Flat Fee\", \"quantity\": 10, \"unit_cost\": 3500 }]\n"
+            "  } . Do NOT send free-text or nested strings. You may omit line_total; the server computes it.\n"
+            "- Accept synonyms in user input (qty, q, price, unit price), but ALWAYS send the API fields as quantity and unit_cost in the final tool call.\n"
             f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
             "- For PDF preview of an existing order, call orders_pdf (GET /orders/pdf/{order_id}). Only call agent_quote_pdf when you provide a body with items and subtotal.\n"
             "- Output style: Write for end users in brief, readable sentences or 2–6 short bullets. Avoid code blocks and JSON unless explicitly requested.\n"
@@ -779,6 +832,8 @@ async def agent_upload(file: UploadFile = File(...)):
     # Try to extract a customer name from the document text
     try:
         extracted_customer = _extract_customer_from_notes(text)
+        if extracted_customer:
+            extracted_customer = _canonicalize_customer(extracted_customer)
     except Exception:
         extracted_customer = None
     # Include prompt context if upload originated from an agent-run flow in the same session
@@ -1072,6 +1127,8 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
         # Extract and set customer name if present in notes
         try:
             extracted = _extract_customer_from_notes(notes)
+            if extracted:
+                extracted = _canonicalize_customer(extracted)
             if extracted:
                 _ = update_customer(order_id, extracted, prompt=notes, tool_name="notetaker_ingest")
         except Exception:

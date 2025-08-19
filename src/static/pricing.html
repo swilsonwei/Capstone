@@ -252,9 +252,18 @@
           s = s.replace(/\n?\s*-\s*\*\*[^*]+\*\*:\s*.*(?=\n|$)/g, '');
           s = s.replace(/```[\s\S]*?```/g, '');
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
+          // Strip markdown headings like #, ##, ### while keeping their content
+          s = s.replace(/^[\t ]{0,3}#{1,6}[^\S\r\n]*(.*)$/gm, '$1');
+          // Remove generic bullets and numbered list lines
+          s = s.replace(/^\s*(?:[-*]|\d+[.)])\s.*$/gm, '');
+          // If bullets follow, keep only lead sentence
           s = s.split(/\n-\s\*\*/)[0];
+          // Remove residual bold wrappers
           s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           s = s.replace(/\n{2,}/g, '\n').trim();
+          // Keep only the first sentence for brevity
+          const sentence = s.match(/^.*?[.!?](?:\s|$)/);
+          if (sentence && sentence[0]) s = sentence[0].trim();
           return s || String(text || '');
         }catch{return String(text||'');}
       }

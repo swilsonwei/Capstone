@@ -80,10 +80,7 @@
       /* Top customers grid */
       .customers-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
       @media (min-width: 720px) { .customers-grid { grid-template-columns: repeat(3, 1fr); } }
-      .cust-card { border: 1px solid var(--border); background: var(--surface); border-radius: 14px; padding: 14px; box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
-      .cust-card .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; letter-spacing: .2px; }
-      .cust-card .value { font-size: 18px; font-weight: 800; color: var(--text); }
-      .cust-card .sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+      /* Reuse stat-card styling for top customers */
     </style>
   </head>
   <body>
@@ -126,6 +123,7 @@
             </div>
             </div>
           </div>
+          <div class="row">Top Customers</div>
           <div class="customers-grid" id="topCustomers"></div>
         </div>
         <div class="card sticky">
@@ -165,12 +163,17 @@
           s = s.replace(/```[\s\S]*?```/g, '');
           // If there are inline JSON-ish blocks, remove lines starting with { or [
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
+          // Strip markdown headings like #, ##, ### while keeping content
+          s = s.replace(/^[\t ]{0,3}#{1,6}[^\S\r\n]*(.*)$/gm, '$1');
           // If the message includes a lead sentence followed by details on new bullet lines, keep only lead
           s = s.split(/\n-\s\*\*/)[0];
           // Strip any remaining bold markdown wrappers
           s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           // Collapse extra whitespace
           s = s.replace(/\n{2,}/g, '\n').trim();
+          // Keep only the first sentence for brevity
+          const sentence = s.match(/^.*?[.!?](?:\s|$)/);
+          if (sentence && sentence[0]) s = sentence[0].trim();
           return s || String(text || '');
         }catch{return String(text||'');}
       }
@@ -268,12 +271,12 @@
             wrap.innerHTML = '';
             for (const [name, info] of top){
               const card = document.createElement('div');
-              card.className = 'cust-card';
+              card.className = 'stat-card';
               card.innerHTML = `
-                <div class="label">Top Customer</div>
-                <div class="value">${name || 'Unknown'}</div>
-                <div class="sub">Total: $${Number(info.sum||0).toLocaleString('en-US', {maximumFractionDigits:0})} · Orders: ${info.count}</div>
-              `;
+                <div class="inner">
+                  <div class="value">${name || 'Unknown'}</div>
+                  <div class="sub">Total: $${Number(info.sum||0).toLocaleString('en-US', {maximumFractionDigits:0})} · Orders: ${info.count}</div>
+                </div>`;
               wrap.appendChild(card);
             }
           }

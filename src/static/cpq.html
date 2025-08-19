@@ -291,8 +291,11 @@
           s = s.replace(/\n?\s*-\s*\*\*[^*]+\*\*:\s*.*(?=\n|$)/g, '');
           s = s.replace(/```[\s\S]*?```/g, '');
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
+          s = s.replace(/^[\t ]{0,3}#{1,6}[^\S\r\n]*(.*)$/gm, '$1');
           if (s.includes(' - **')) s = s.split(' - **')[0];
           s = s.replace(/\n{2,}/g, '\n').trim();
+          const sentence = s.match(/^.*?[.!?](?:\s|$)/);
+          if (sentence && sentence[0]) s = sentence[0].trim();
           return s || String(text || '');
         }catch{return String(text||'');}
       }

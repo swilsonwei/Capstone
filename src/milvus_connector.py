@@ -317,8 +317,8 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
 async def add_document(text: str, doc_id: str, chunk_id: int, source: str):
     """Add a document chunk to the cpq_life_sciences collection using Zilliz HTTP API.
 
-    The target schema includes fields: vector (1536), doc_id (varchar), chunk_id (int64), text (varchar), source (varchar).
-    Primary key is auto-generated; we do not set it here.
+    The target schema includes fields: vector (FLOAT_VECTOR 1536), doc_id (varchar), chunk_id (int64), text (varchar), source (varchar).
+    Primary key (INT64) is auto-generated; we do not set it here.
     """
     try:
         if not MILVUS_ENABLED:
