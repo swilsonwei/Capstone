@@ -591,8 +591,11 @@ def _chunk_text(text: str, chunk_size: int = 1200, chunk_overlap: int = 200):
     return chunks
 
 
-async def index_order_in_milvus(order: Dict) -> None:
-    """Index a newly created order into Milvus as retrieval data for the LLM."""
+async def index_order_in_milvus(order: Dict, log: bool = True) -> int:
+    """Index a newly created order into Milvus as retrieval data for the LLM.
+
+    Returns the number of vectors indexed (header + items).
+    """
     try:
         # Milvus optional; ignore ensure step when disabled or inaccessible
         ensure_collection_exists()
@@ -623,21 +626,26 @@ async def index_order_in_milvus(order: Dict) -> None:
             line = f"{name} | qty {qty:g} | unit ${unit:,.0f} | total ${line_total:,.0f}"
             tasks.append(add_document(line, order_id, idx, source))
         await asyncio.gather(*tasks, return_exceptions=True)
-        try:
-            append_log({
-                "type": "order_indexed_milvus",
-                "order_id": order_id,
-                "details": {"items_indexed": len(tasks)},
-            })
-        except Exception:
-            pass
+        if log:
+            try:
+                append_log({
+                    "type": "order_indexed_milvus",
+                    "order_id": order_id,
+                    "details": {"items_indexed": len(tasks)},
+                })
+            except Exception:
+                pass
+        return int(len(tasks))
     except Exception:
-        pass
+        return 0
 
-async def index_notes_in_milvus(order_id: str, notes: str, source: str = "notetaker") -> None:
-    """Chunk and index freeform notes/transcripts so the agent can retrieve evidence later."""
+async def index_notes_in_milvus(order_id: str, notes: str, source: str = "notetaker", log: bool = True) -> int:
+    """Chunk and index freeform notes/transcripts so the agent can retrieve evidence later.
+
+    Returns the number of note chunks indexed.
+    """
     if not notes or not order_id:
-        return
+        return 0
     try:
         # Milvus optional; ignore ensure step when disabled or inaccessible
         ensure_collection_exists()
@@ -647,15 +655,47 @@ async def index_notes_in_milvus(order_id: str, notes: str, source: str = "noteta
         chunks = _chunk_text(notes, chunk_size=800, chunk_overlap=120)
         tasks = [add_document(chunk, f"{order_id}:notes", idx, source) for idx, chunk in enumerate(chunks)]
         await asyncio.gather(*tasks, return_exceptions=True)
-        try:
-            append_log({
-                "type": "notes_indexed_milvus",
-                "order_id": order_id,
-                "details": {"chunks": len(chunks)},
-            })
-        except Exception:
-            pass
+        if log:
+            try:
+                append_log({
+                    "type": "notes_indexed_milvus",
+                    "order_id": order_id,
+                    "details": {"chunks": len(chunks)},
+                })
+            except Exception:
+                pass
+        return int(len(chunks))
     except Exception:
+        return 0
+
+
+async def index_all_in_milvus(order: Dict, notes: Optional[str] = None) -> None:
+    """Index order header/items and optional notes, then emit a single combined log."""
+    try:
+        order_id = order.get("id") or ""
+        # Run both indexing tasks concurrently without their own logs
+        tasks: list = [index_order_in_milvus(order, log=False)]
+        if notes:
+            tasks.append(index_notes_in_milvus(order_id, notes, log=False))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        items_indexed = 0
+        note_chunks = 0
+        try:
+            items_indexed = int(results[0]) if isinstance(results[0], (int, float)) else 0
+        except Exception:
+            items_indexed = 0
+        if len(results) > 1:
+            try:
+                note_chunks = int(results[1]) if isinstance(results[1], (int, float)) else 0
+            except Exception:
+                note_chunks = 0
+        append_log({
+            "type": "ingest_indexed_milvus",
+            "order_id": order_id,
+            "details": {"items_indexed": items_indexed, "note_chunks": note_chunks},
+        })
+    except Exception:
+        # Best-effort logging only
         pass
 
 @app.post("/agent/upload")
@@ -744,7 +784,7 @@ async def agent_upload(file: UploadFile = File(...)):
         "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
     })
     try:
-        asyncio.create_task(index_order_in_milvus(order))
+        asyncio.create_task(index_all_in_milvus(order, notes=None))
     except Exception:
         pass
     # Kick off MCP client asynchronously for post-upload quote generation
@@ -885,7 +925,7 @@ async def orders_pdf(order_id: str):
     c.drawString(1 * inch, y, f"Quote {order_id}")
     y -= 0.4 * inch
     c.setFont("Helvetica", 10)
-    c.drawString(1 * inch, y, f"Customer: {order.get('customers','')}")
+    c.drawString(1 * inch, y, f"Customer: {order.get('customer','')}")
     y -= 0.2 * inch
     c.drawString(1 * inch, y, f"Source: {order.get('source_file','')}")
     y -= 0.25 * inch
@@ -1013,11 +1053,7 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
             pass
         # Index order and notes in Milvus
         try:
-            asyncio.create_task(index_order_in_milvus(order))
-        except Exception:
-            pass
-        try:
-            asyncio.create_task(index_notes_in_milvus(order_id, notes))
+            asyncio.create_task(index_all_in_milvus(order, notes))
         except Exception:
             pass
 
@@ -1027,6 +1063,11 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
             "prompt": _summarize_text(notes, 200),
             "tool_name": "notetaker_ingest",
             "user_id": (_auth or {}).get("sub") if isinstance(_auth, dict) else None,
+            "details": {
+                "items_count": len(normalized_items),
+                "subtotal": subtotal,
+                "customer": extracted or "",
+            },
         })
         return {"ok": True, "order_id": order_id, "pricing_url": f"/pricing/{order_id}"}
     except Exception as e:
@@ -1097,7 +1138,7 @@ async def pricing_data(order_id: str):
         "order": {
             "id": order.get("id"),
             "source_file": order.get("source_file"),
-            "customers": order.get("customers", ""),
+            "customer": order.get("customer", ""),
             "items": items,
             "subtotal": order.get("subtotal", 0),
             "status": order.get("status")
@@ -1130,6 +1171,12 @@ class OrderStatusUpdate(BaseModel):
     prompt: Optional[str] = None
 
 
+class OrdersStatusBulkUpdate(BaseModel):
+    ids: list[str]
+    status: str
+    prompt: Optional[str] = None
+
+
 @app.post(
     "/orders/status",
     operation_id="update_order_status",
@@ -1156,9 +1203,44 @@ async def orders_status(update: OrderStatusUpdate, _auth=Depends(require_auth)):
     except Exception:
         pass
     return updated
+
+
+@app.post(
+    "/orders/status/bulk",
+    operation_id="update_orders_status_bulk",
+    summary="Update status for multiple orders",
+    description="Body must be `{ ids: string[], status: Quoted|Sent|Received }`. Returns `{ updated_ids: string[] }`."
+)
+async def orders_status_bulk(update: OrdersStatusBulkUpdate, _auth=Depends(require_auth)):
+    if update.status not in ("Quoted", "Sent", "Received"):
+        return JSONResponse(status_code=400, content={"error": "invalid status"})
+    ids = list(update.ids or [])
+    if not ids:
+        return JSONResponse(status_code=400, content={"error": "missing ids"})
+    effective_prompt = update.prompt if update.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
+    updated_ids: list[str] = []
+    for raw_id in ids:
+        effective_id = _resolve_order_id(raw_id) or raw_id
+        try:
+            res = update_status(effective_id, update.status, prompt=effective_prompt, tool_name="update_orders_status_bulk")
+            if res:
+                updated_ids.append(effective_id)
+        except Exception:
+            # continue best-effort
+            pass
+    try:
+        append_log({
+            "type": "orders_status_updated_bulk",
+            "details": {"status": update.status, "updated_ids": updated_ids},
+            "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(effective_prompt, 200)),
+            "tool_name": "update_orders_status_bulk",
+        })
+    except Exception:
+        pass
+    return {"updated_ids": updated_ids}
 class OrderCustomerUpdate(BaseModel):
     id: Optional[str] = None
-    customers: str
+    customer: str
     prompt: Optional[str] = None
 
 
@@ -1166,7 +1248,7 @@ class OrderCustomerUpdate(BaseModel):
     "/orders/customer",
     operation_id="update_order_customer",
     summary="Update order customer name",
-    description="Body must be `{ id: string, customers: string }`. Returns the updated order."
+    description="Body must be `{ id: string, customer: string }`. Returns the updated order."
 )
 async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_auth)):
     # Fallback to current order context if id not provided
@@ -1182,7 +1264,7 @@ async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_aut
             _ = update_status(effective_id, "Quoted", prompt=effective_prompt, tool_name="update_order_customer")
     except Exception:
         pass
-    updated = update_customer(effective_id, update.customers, prompt=effective_prompt, tool_name="update_order_customer")
+    updated = update_customer(effective_id, update.customer, prompt=effective_prompt, tool_name="update_order_customer")
     if not updated:
         # As a last resort, check if order exists to return a clearer error
         exists = get_order(effective_id)
@@ -1191,7 +1273,7 @@ async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_aut
         append_log({
             "type": "order_customer_updated",
             "order_id": effective_id,
-            "details": {"customers": update.customers},
+            "details": {"customer": update.customer},
             "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
             "tool_name": "update_order_customer",
         })
@@ -1321,6 +1403,7 @@ async def clone_order(payload: CloneOrderRequest, _auth=Depends(require_auth)) -
                 "order_id": new_order.get("id"),
                 "details": {
                     "source": payload.source_order_id,
+                    "source_file": source_name,
                     "additions": payload.additions,
                     "items_count": len(normalized),
                     "subtotal": subtotal,
@@ -1366,7 +1449,12 @@ async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_aut
         append_log({
             "type": "order_items_added",
             "order_id": payload.order_id,
-            "details": {"added": add_items, "new_items_count": len(updated.get("items", [])), "subtotal": updated.get("subtotal", 0)},
+            "details": {
+                "added": add_items,
+                "new_items_count": len(updated.get("items", [])),
+                "items_count": len(updated.get("items", [])),
+                "subtotal": updated.get("subtotal", 0)
+            },
             "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
             "tool_name": "add_items_to_order",
         })

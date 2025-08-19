@@ -142,7 +142,7 @@
             <td><a href="/pricing/${o.id}">${o.id}</a></td>
             <td>${pdfLink}</td>
             <td>${o.items_count}</td>
-            <td>${o.customers || o.customer || ''}</td>
+            <td>${o.customer || ''}</td>
             <td>$${Number(o.subtotal||0).toLocaleString('en-US', {maximumFractionDigits:0, minimumFractionDigits:0})}</td>
             <td></td>
             <td>${o.created_at||''}</td>

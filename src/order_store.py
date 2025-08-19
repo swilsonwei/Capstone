@@ -69,7 +69,7 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
     order = {
         "id": order_id,
         "source_file": source_file,
-        "customers": "",
+        "customer": "",
         "items_count": int(items_count or 0),
         "subtotal": float(subtotal or 0.0),
         "status": status,
@@ -107,17 +107,7 @@ def create_order(source_file: str, subtotal: float, items_count: int, status: st
                 except Exception:
                     pass
     # Emit audit log (best-effort)
-    try:
-        from src.audit_log import append_log
-        append_log({
-            "type": "order_created",
-            "order_id": order_id,
-            "details": {"source_file": source_file, "items_count": items_count, "subtotal": subtotal},
-            "prompt": prompt,
-            "tool_name": tool_name,
-        })
-    except Exception:
-        pass
+    # API layer is the single source of audit logs for order creation
     return order
 
 
@@ -128,7 +118,7 @@ def list_orders() -> List[Dict[str, Any]]:
             resp = _sb.table("orders").select("*").order("created_at", desc=True).execute()
             if resp and hasattr(resp, "data"):
                 sb_orders = [dict(r) for r in list(resp.data)]
-                # Merge local cache fields (e.g., customers, items) if Supabase rows are missing them
+                # Merge local cache fields (e.g., customer, items) if Supabase rows are missing them
                 store = _ensure_store()
                 local_by_id = {o.get("id"): o for o in store.get("orders", [])}
                 merged: List[Dict[str, Any]] = []
@@ -136,8 +126,12 @@ def list_orders() -> List[Dict[str, Any]]:
                     oid = row.get("id")
                     local = local_by_id.get(oid, {})
                     # Prefer Supabase values; fill blanks from local cache
-                    if (not row.get("customers")) and local.get("customers"):
-                        row["customers"] = local.get("customers")
+                    try:
+                        local_customer = local.get("customer") or local.get("customers")
+                    except Exception:
+                        local_customer = None
+                    if (not row.get("customer")) and local_customer:
+                        row["customer"] = local_customer
                     # Do not override Supabase items; only fill if absent
                     if (not row.get("items")) and local.get("items"):
                         row["items"] = local.get("items")
@@ -209,17 +203,7 @@ def update_status(order_id: str, status: str, prompt: str | None = None, tool_na
                     store.setdefault("orders", []).append(target)
                 _save_store(store)
                 # Single-source audit log (data layer only)
-                try:
-                    from src.audit_log import append_log
-                    append_log({
-                        "type": "order_status_updated",
-                        "order_id": order_id,
-                        "details": {"status": status},
-                        "prompt": prompt,
-                        "tool_name": tool_name,
-                    })
-                except Exception:
-                    pass
+                # API layer is the single source of audit logs for status updates
                 return target
         except Exception:
             # fall back to local-only update below
@@ -232,17 +216,7 @@ def update_status(order_id: str, status: str, prompt: str | None = None, tool_na
             o["status"] = status
             _save_store(store)
             # Single-source audit log (data layer only)
-            try:
-                from src.audit_log import append_log
-                append_log({
-                    "type": "order_status_updated",
-                    "order_id": order_id,
-                    "details": {"status": status},
-                    "prompt": prompt,
-                    "tool_name": tool_name,
-                })
-            except Exception:
-                pass
+            # API layer is the single source of audit logs for status updates
             return o
     return {}
 
@@ -272,10 +246,10 @@ def get_order(order_id: str) -> Dict[str, Any] | None:
                     _save_store(store)
                 except Exception:
                     pass
-            # If Supabase lacks customers but local has it, hydrate return value
+            # If Supabase lacks customer but local has it, hydrate return value
             try:
-                if (not sb_row.get("customers")) and local and local.get("customers"):
-                    sb_row["customers"] = local.get("customers")
+                if (not sb_row.get("customer")) and local and (local.get("customer") or local.get("customers")):
+                    sb_row["customer"] = (local.get("customer") or local.get("customers"))
             except Exception:
                 pass
             # If local has items but Supabase lacks them, enrich the return value with local items
@@ -303,7 +277,7 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
                 target = {
                     "id": sb_row.get("id"),
                     "source_file": sb_row.get("source_file", ""),
-                    "customers": sb_row.get("customers", ""),
+                    "customer": sb_row.get("customer", ""),
                     "items": list(sb_row.get("items") or []),
                     "items_count": int(sb_row.get("items_count", 0) or 0),
                     "subtotal": float(sb_row.get("subtotal", 0) or 0.0),
@@ -319,17 +293,7 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
     # Guardrail: block edits for Sent/Received
     try:
         if str(target.get("status")) in ("Sent", "Received"):
-            try:
-                from src.audit_log import append_log
-                append_log({
-                    "type": "order_items_update_blocked",
-                    "order_id": order_id,
-                    "details": {"reason": "read-only status", "status": target.get("status")},
-                    "prompt": prompt,
-                    "tool_name": tool_name,
-                })
-            except Exception:
-                pass
+            # API layer is the single source of audit logs for update blocked
             return None
     except Exception:
         pass
@@ -395,18 +359,7 @@ def update_items(order_id: str, items: List[Dict[str, Any]], prompt: Optional[st
                         }).execute()
                     except Exception:
                         pass
-    # Audit log
-    try:
-        from src.audit_log import append_log
-        append_log({
-            "type": "order_items_updated",
-            "order_id": order_id,
-            "details": {"items_count": len(normalized), "subtotal": float(subtotal)},
-            "prompt": prompt,
-            "tool_name": tool_name,
-        })
-    except Exception:
-        pass
+    # API layer is the single source of audit logs for item updates
     return target
 
 
@@ -432,7 +385,7 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
     # Supabase-first
     if _sb:
         try:
-            _sb.table("orders").update({"customers": customers}).eq("id", order_id).execute()
+            _sb.table("orders").update({"customer": customers}).eq("id", order_id).execute()
             resp = _sb.table("orders").select("*").eq("id", order_id).limit(1).execute()
             sb_order = (resp.data or [])[0] if hasattr(resp, "data") and resp.data else None
             if sb_order:
@@ -441,14 +394,14 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
                 target = None
                 for o in store.get("orders", []):
                     if o.get("id") == order_id:
-                        o["customers"] = customers
+                        o["customer"] = customers
                         target = o
                         break
                 if target is None:
                     target = {
                         "id": sb_order.get("id"),
                         "source_file": sb_order.get("source_file", ""),
-                        "customers": customers,
+                        "customer": customers,
                         "items_count": int(sb_order.get("items_count", 0) or 0),
                         "subtotal": float(sb_order.get("subtotal", 0) or 0.0),
                         "status": sb_order.get("status", "Quoted"),
@@ -457,17 +410,7 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
                     }
                     store.setdefault("orders", []).append(target)
                 _save_store(store)
-                try:
-                    from src.audit_log import append_log
-                    append_log({
-                        "type": "order_customer_updated",
-                        "order_id": order_id,
-                        "details": {"customers": customers},
-                        "prompt": prompt,
-                        "tool_name": tool_name,
-                    })
-                except Exception:
-                    pass
+                # API layer is the single source of audit logs for customer updates
                 return target
         except Exception:
             # Fall through to local handling
@@ -492,7 +435,7 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
                 target = {
                     "id": sb_row.get("id"),
                     "source_file": sb_row.get("source_file", ""),
-                    "customers": customers,
+                    "customer": customers,
                     "items_count": int(sb_row.get("items_count", 0) or 0),
                     "subtotal": float(sb_row.get("subtotal", 0) or 0.0),
                     "status": sb_row.get("status", "Quoted"),
@@ -513,19 +456,9 @@ def update_customer(order_id: str, customers: str, prompt: Optional[str] = None,
             pass
 
     if target is not None:
-        target["customers"] = customers
+        target["customer"] = customers
         _save_store(store)
-        try:
-            from src.audit_log import append_log
-            append_log({
-                "type": "order_customer_updated",
-                "order_id": order_id,
-                "details": {"customers": customers},
-                "prompt": prompt,
-                "tool_name": tool_name,
-            })
-        except Exception:
-            pass
+        # API layer is the single source of audit logs for customer updates
         return target
 
     return None
@@ -545,12 +478,7 @@ def delete_order(order_id: str) -> bool:
             _sb.table("orders").delete().eq("id", order_id).execute()
         except Exception:
             pass
-    if changed:
-        try:
-            from src.audit_log import append_log
-            append_log({"type": "order_deleted", "order_id": order_id})
-        except Exception:
-            pass
+    # API layer is the single source of audit logs for deletions
     return changed
 
 
