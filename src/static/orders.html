@@ -105,7 +105,8 @@
           s = s.replace(/\n?\s*-\s*\*\*[^*]+\*\*:\s*.*(?=\n|$)/g, '');
           s = s.replace(/```[\s\S]*?```/g, '');
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
-          if (s.includes(' - **')) s = s.split(' - **')[0];
+          s = s.split(/\n-\s\*\*/)[0];
+          s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           s = s.replace(/\n{2,}/g, '\n').trim();
           return s || String(text || '');
         }catch{return String(text||'');}

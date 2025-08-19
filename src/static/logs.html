@@ -45,9 +45,7 @@
       </nav>
       <div class="card">
         <h2>Audit Trail</h2>
-        <div class="row">
-          <button id="refresh">Refresh</button>
-        </div>
+        
         <table id="logTbl">
           <thead>
             <tr>
@@ -110,7 +108,7 @@
       }
       // Initial load
       appendLogs();
-      document.getElementById('refresh').onclick = () => { logOffset = 0; document.querySelector('#logTbl tbody').innerHTML=''; appendLogs(); };
+      // Removed manual refresh; use infinite scroll and initial load
       // Infinite scroll: load more when near bottom
       window.addEventListener('scroll', () => {
         if ((window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 200)) {

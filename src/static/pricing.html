@@ -33,6 +33,7 @@
       .actions { display:flex; gap:10px; margin-top:12px; }
       button { padding:10px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
       button.secondary { background:#fff; color:var(--accent); }
+      button:disabled { background:#9ca3af; border-color:#9ca3af; cursor:not-allowed; }
       .toasts { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
       .toast { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-md); border-radius: 10px; padding: 10px 12px; min-width: 220px; }
       .footer { margin-top: 28px; padding: 18px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
@@ -198,6 +199,20 @@
         }
         for (const inp of tbody.querySelectorAll('input')){ inp.disabled = !isEditing; }
       }
+      function setSaving(isSaving){
+        try{
+          const saveBtn = document.getElementById('save');
+          const cancelBtn = document.getElementById('cancel');
+          saveBtn.disabled = !!isSaving;
+          cancelBtn.disabled = !!isSaving;
+          if (isSaving){
+            saveBtn.dataset._label = saveBtn.textContent;
+            saveBtn.textContent = 'Saving...';
+          } else {
+            saveBtn.textContent = saveBtn.dataset._label || 'Save';
+          }
+        } catch {}
+      }
 
       document.getElementById('edit').onclick = ()=>{ setEditMode(true); };
       document.getElementById('cancel').onclick = async ()=>{ await load(); setEditMode(false); };
@@ -208,16 +223,22 @@
           items.push({ item:iName.value, quantity: parseFloat(iQty.value||'0')||0, unit_cost: parseFloat(iCost.value||'0')||0 });
         }
         const headers = Object.assign({'Content-Type':'application/json'}, await authHeaders());
-        const res = await fetch(`/pricing/save/${orderId}`, { method:'POST', headers, body: JSON.stringify({ items }) });
-        const data = await res.json();
-        if(data && data.ok){
-          await load();
-          setEditMode(false);
-          showToast('Saved');
-          // Redirect to Orders page after successful save
-          window.location.href = '/orders';
-        } else {
-          showToast('Save failed');
+        setSaving(true);
+        try{
+          const res = await fetch(`/pricing/save/${orderId}`, { method:'POST', headers, body: JSON.stringify({ items }) });
+          const data = await res.json();
+          if(data && data.ok){
+            await load();
+            setEditMode(false);
+            showToast('Saved');
+            // Redirect to Orders page after successful save
+            window.location.href = '/orders';
+            return;
+          } else {
+            showToast('Save failed');
+          }
+        } finally {
+          setSaving(false);
         }
       };
 
@@ -231,7 +252,8 @@
           s = s.replace(/\n?\s*-\s*\*\*[^*]+\*\*:\s*.*(?=\n|$)/g, '');
           s = s.replace(/```[\s\S]*?```/g, '');
           s = s.replace(/^[\t ]*[\[{].*$/gm, '');
-          if (s.includes(' - **')) s = s.split(' - **')[0];
+          s = s.split(/\n-\s\*\*/)[0];
+          s = s.replace(/\*\*(.*?)\*\*/g, '$1');
           s = s.replace(/\n{2,}/g, '\n').trim();
           return s || String(text || '');
         }catch{return String(text||'');}

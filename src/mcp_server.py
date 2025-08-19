@@ -229,7 +229,7 @@ def _extract_customer_from_notes(notes: str) -> Optional[str]:
         s = (notes or "").strip()
         if not s:
             return None
-        # Common patterns: "Customer: Pfizer", "Customer Name - Acme Corp", "Client: ...", "Company: ..."
+        # 1) Structured labels
         patterns = [
             r"(?im)^[\-*\s>]*customer(?:\s+name)?\s*[:\-]\s*(.+)$",
             r"(?im)^[\-*\s>]*client\s*[:\-]\s*(.+)$",
@@ -239,14 +239,27 @@ def _extract_customer_from_notes(notes: str) -> Optional[str]:
             m = re.search(pat, s)
             if m:
                 cand = m.group(1).strip()
-                # Clean markdown artifacts and trailing decorations
                 cand = re.sub(r"^\**|\**$", "", cand).strip()
                 cand = re.sub(r"^`+|`+$", "", cand).strip()
-                # Stop at common delimiters
                 cand = re.split(r"[\|•#\r\n]", cand)[0].strip()
-                # Limit length to avoid capturing entire paragraphs
                 if 1 <= len(cand) <= 120:
                     return cand
+        # 2) Conversational hints (e.g., "assume it's Pfizer")
+        m2 = re.search(r"(?i)assume(?:\s+it\s+is|\s+it's|\s+its)?\s+([A-Za-z][A-Za-z0-9 .&'-]{1,120})", s)
+        if m2:
+            cand = m2.group(1).strip()
+            cand = re.sub(r"[^A-Za-z0-9 .&'-]", "", cand).strip()
+            if 1 <= len(cand) <= 120:
+                return cand
+        # 3) Known company names (quick dictionary match)
+        known = [
+            "Pfizer", "Moderna", "BMS", "Bristol Myers", "GSK", "Novartis", "Merck",
+            "Roche", "Sanofi", "Amgen", "AstraZeneca", "Regeneron", "Biogen", "Bayer",
+            "AbbVie", "Eli Lilly",
+        ]
+        for name in known:
+            if re.search(rf"(?i)\b{name}\b", s):
+                return name
         return None
     except Exception:
         return None
@@ -763,6 +776,11 @@ async def agent_upload(file: UploadFile = File(...)):
             "line_total": line_total,
         })
 
+    # Try to extract a customer name from the document text
+    try:
+        extracted_customer = _extract_customer_from_notes(text)
+    except Exception:
+        extracted_customer = None
     # Include prompt context if upload originated from an agent-run flow in the same session
     order = create_order(
         file.filename,
@@ -773,6 +791,12 @@ async def agent_upload(file: UploadFile = File(...)):
         prompt=_summarize_text((AGENT_PROMPT.get() or recent_user_prompt()), 200),
         tool_name="agent_upload",
     )
+    # If we found a customer, update immediately so Pricing sees it on first load
+    try:
+        if extracted_customer:
+            _ = update_customer(order.get("id"), extracted_customer, prompt=(AGENT_PROMPT.get() or recent_user_prompt()), tool_name="agent_upload")
+    except Exception:
+        pass
     append_log({
         "type": "upload_ingest",
         "file": file.filename,
@@ -782,15 +806,16 @@ async def agent_upload(file: UploadFile = File(...)):
         "items_count": len(normalized_items),
         "subtotal": subtotal,
         "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
+        "tool_name": "agent_upload",
+        "details": {"mcp_client_triggered": True, "customer": (extracted_customer or "")},
     })
     try:
         asyncio.create_task(index_all_in_milvus(order, notes=None))
     except Exception:
         pass
-    # Kick off MCP client asynchronously for post-upload quote generation
+    # Kick off MCP client asynchronously for post-upload quote generation (combined log above)
     try:
         asyncio.create_task(mcp_client_run())
-        append_log({"type": "mcp_client_triggered", "order_id": order.get("id")})
     except Exception as e:
         append_log({"type": "mcp_client_error", "order_id": order.get("id"), "error": str(e)})
     return {
@@ -1067,6 +1092,7 @@ async def notetaker_ingest(body: NotetakerIngest, _auth=Depends(require_auth)):
                 "items_count": len(normalized_items),
                 "subtotal": subtotal,
                 "customer": extracted or "",
+                "mcp_client_triggered": True,
             },
         })
         return {"ok": True, "order_id": order_id, "pricing_url": f"/pricing/{order_id}"}
