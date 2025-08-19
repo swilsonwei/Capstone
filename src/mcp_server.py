@@ -124,7 +124,7 @@ async def audit_orders_calls(request: Request, call_next):
                 "method": method,
                 "status": getattr(response, "status_code", None),
                 # Summarize recent user prompt; never log tool guide
-                "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
+                "prompt": _audit_prompt_context(),
                 "tool_name": tool,
             })
     except Exception:
@@ -583,6 +583,7 @@ async def agent_run(req: AgentRunRequest):
             "- Mixed-scope requests: If a request contains both supported and unsupported parts, DO NOT execute any action yet. First, ask ONE concise follow-up to confirm proceeding with the supported part(s), then await explicit user approval (e.g., 'yes') before calling any tools. Begin the reply with 'Follow-up:' so the user understands it's a clarification.\n"
             "- Unsupported examples (decline politely): drawing/creating images, posting to Instagram or other external sites, sending emails/Slack, web browsing, payment processing, user/account administration.\n"
             "  When declining, say: 'We’re sorry, but we can’t do that in this app.' Offer a closest in-scope alternative only if helpful.\n"
+            "- If the user asks to export to Excel/CSV or similar external operations, acknowledge limitation and ask a constructive follow-up like: 'Follow-up: I can list or summarize all Pfizer orders, compute totals, or change statuses. What would you like me to do with these orders?'\n"
             "- Clarification & confirmation: If the mapping to a tool is ambiguous or could impact multiple records, ask ONE concise follow-up question and await the user's confirmation before proceeding.\n"
             "- Example: If asked 'create a quote like OD-37 and draw pictures of deer and elephant and upload to my Instagram':\n"
             "  → Ask: 'Follow-up: I can create a new quote like OD-37. Proceed?'\n"
@@ -637,8 +638,8 @@ async def agent_run(req: AgentRunRequest):
         action_summary = _summarize_text(req.prompt, 200)
         append_log({
             "type": "agent_run",
-            # Summarize user prompt; do not include tool guide
-            "prompt": action_summary,
+            # Use audit prompt context to capture follow-up + yes/no
+            "prompt": _audit_prompt_context(action_summary),
             "tokens_output": int(max(1, len(str(result))//4)),
             "result": result,
         })
@@ -1370,7 +1371,7 @@ async def orders_status(update: OrderStatusUpdate, _auth=Depends(require_auth)):
             "type": "order_status_updated",
             "order_id": effective_id,
             "details": {"status": update.status},
-            "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+            "prompt": _audit_prompt_context(effective_prompt),
             "tool_name": "update_order_status",
         })
     except Exception:
@@ -1405,7 +1406,7 @@ async def orders_status_bulk(update: OrdersStatusBulkUpdate, _auth=Depends(requi
         append_log({
             "type": "orders_status_updated_bulk",
             "details": {"status": update.status, "updated_ids": updated_ids},
-            "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(effective_prompt, 200)),
+            "prompt": _audit_prompt_context(effective_prompt),
             "tool_name": "update_orders_status_bulk",
         })
     except Exception:
@@ -1447,7 +1448,7 @@ async def orders_customer(update: OrderCustomerUpdate, _auth=Depends(require_aut
             "type": "order_customer_updated",
             "order_id": effective_id,
             "details": {"customer": update.customer},
-            "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+            "prompt": _audit_prompt_context(effective_prompt),
             "tool_name": "update_order_customer",
         })
     except Exception:
@@ -1585,7 +1586,7 @@ async def clone_order(payload: CloneOrderRequest, _auth=Depends(require_auth)) -
                 "method": "POST",
                 "status": 200,
                 # Use last user prompt summary instead of tool guide
-                "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+                "prompt": _audit_prompt_context(effective_prompt),
                 "tool_name": "clone_order",
             }
         )
@@ -1628,7 +1629,7 @@ async def add_items_to_order(payload: AddItemsRequest, _auth=Depends(require_aut
                 "items_count": len(updated.get("items", [])),
                 "subtotal": updated.get("subtotal", 0)
             },
-            "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+            "prompt": _audit_prompt_context(effective_prompt),
             "tool_name": "add_items_to_order",
         })
         return {"order": updated}
@@ -1681,7 +1682,7 @@ async def create_variant_order(payload: CreateVariantRequest, _auth=Depends(requ
                 "route": "/orders/variant",
                 "method": "POST",
                 "status": 200,
-                "prompt": (_summarize_text(recent_user_prompt(), 200) or effective_prompt),
+                "prompt": _audit_prompt_context(effective_prompt),
                 "tool_name": "create_variant_order",
             }
         )

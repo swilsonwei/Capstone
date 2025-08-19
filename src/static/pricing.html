@@ -306,6 +306,16 @@
       }
       function didMutateCurrentOrder(payload){
         try{
+          // If the agent returned a plain string, or a string in result, inspect it directly
+          const lowerOrder = String(orderId || '').toLowerCase();
+          if (payload && typeof payload === 'string'){
+            const s = payload.toLowerCase();
+            if (s.includes(lowerOrder) && /(add|added|update|updated|clone|created|variant|status)/i.test(s)) return true;
+          }
+          if (payload && typeof payload.result === 'string'){
+            const s = String(payload.result || '').toLowerCase();
+            if (s.includes(lowerOrder) && /(add|added|update|updated|clone|created|variant|status)/i.test(s)) return true;
+          }
           const r = extractAgentResult(payload);
           if (!r) return false;
           if (r.order && r.order.id === orderId) return true;
@@ -313,7 +323,7 @@
           if (r.updated && r.updated.id === orderId) return true;
           // Heuristic: an action list or message indicating add/update/clone/status for this order
           const blob = JSON.stringify(r);
-          if (/\b(add|update|clone|variant|status)\b/i.test(blob) && (blob.includes(orderId))) return true;
+          if (/\b(add|added|update|updated|clone|created|variant|status)\b/i.test(blob) && (blob.includes(orderId))) return true;
           return false;
         }catch{ return false; }
       }
@@ -332,7 +342,23 @@
           const res = await fetch('/agent/run', { method:'POST', headers, body: JSON.stringify({ prompt: text, history, order_id: orderId }) });
           const data = await res.json();
           const msg = toHumanReadable(data);
-          bot.textContent = msg;
+          const lower = String(msg||'').toLowerCase();
+          const looksYN = /\bfollow-up\b|\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
+          if (looksYN){
+            const wrap = document.createElement('div');
+            wrap.className = 'bubble bot';
+            wrap.textContent = msg;
+            const actions = document.createElement('div');
+            actions.style.marginTop = '8px';
+            const accept = document.createElement('button'); accept.textContent = 'Accept'; accept.style.marginRight = '8px';
+            const reject = document.createElement('button'); reject.textContent = 'Reject'; reject.className = 'secondary';
+            actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
+            bot.replaceWith(wrap);
+            accept.onclick = ()=>{ history.push({role:'user', content:'yes'}); runAgentBtn.click(); };
+            reject.onclick = ()=>{ history.push({role:'user', content:'no'}); runAgentBtn.click(); };
+          } else {
+            bot.textContent = msg;
+          }
           history.push({ role: 'assistant', content: msg });
           try { rememberAssistantMessage(msg); } catch {}
           // Refresh pricing data only if the agent actually mutated this order.

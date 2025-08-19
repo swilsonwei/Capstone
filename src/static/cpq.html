@@ -345,7 +345,22 @@
           });
           const data = await res.json();
           const msg = toHumanReadable(data);
-          bot.textContent = msg;
+          const lower = String(msg||'').toLowerCase();
+          const looksYN = /\bfollow-up\b|\bproceed\b|\byes or no\b|\bconfirm\b/.test(lower);
+          if (looksYN){
+            const wrap = document.createElement('div');
+            wrap.className = 'bubble bot';
+            wrap.textContent = msg;
+            const actions = document.createElement('div'); actions.style.marginTop='8px';
+            const accept = document.createElement('button'); accept.textContent='Accept'; accept.style.marginRight='8px';
+            const reject = document.createElement('button'); reject.textContent='Reject'; reject.className='secondary';
+            actions.appendChild(accept); actions.appendChild(reject); wrap.appendChild(actions);
+            bot.replaceWith(wrap);
+            accept.onclick = ()=>{ history.push({role:'user', content:'yes'}); runBtn.click(); };
+            reject.onclick = ()=>{ history.push({role:'user', content:'no'}); runBtn.click(); };
+          } else {
+            bot.textContent = msg;
+          }
           history.push({ role: 'assistant', content: msg });
           // No page reloads here; CPQ agent actions shouldn't disrupt any pending user input
           showToast('Agent completed');
