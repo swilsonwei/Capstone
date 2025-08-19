@@ -81,6 +81,7 @@
       .customers-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
       @media (min-width: 720px) { .customers-grid { grid-template-columns: repeat(3, 1fr); } }
       /* Reuse stat-card styling for top customers */
+      .section-break { margin-top: 18px; }
     </style>
   </head>
   <body>
@@ -123,7 +124,7 @@
             </div>
             </div>
           </div>
-          <div class="row">Top Customers</div>
+          <div class="row section-break">Top Customers</div>
           <div class="customers-grid" id="topCustomers"></div>
         </div>
         <div class="card sticky">

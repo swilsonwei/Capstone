@@ -425,19 +425,19 @@ async def add_document_to_milvus(request: AddDocumentRequest) -> Dict:
             "metadata": request.metadata
         }
 
-# Define a simple tool
-@app.get("/v1/greet")#, operation_id="greet") commenting out makes this mcp server toolkit unexposed
-async def greet(name: str) -> Dict:
-    """Greets the given name."""
-    return {"message": f"Hello, {name}!"}
+# Define a simple tool (disabled)
+# @app.get("/v1/greet")#, operation_id="greet")
+# async def greet(name: str) -> Dict:
+#     """Greets the given name."""
+#     return {"message": f"Hello, {name}!"}
 
-@app.get("/v2/greet", operation_id="greet")
-async def greet(name: str) -> Dict:
-    """Greets the given name."""
-    return {"message": f"Howdy, {name}!"}
+# @app.get("/v2/greet", operation_id="greet")
+# async def greet(name: str) -> Dict:
+#     """Greets the given name."""
+#     return {"message": f"Howdy, {name}!"}
 
 # Serve Home page (Agent)
-@app.get("/")
+@app.get("/", operation_id="home_page")
 async def home_page():
     # Serve agent.html as the home page
     page = static_dir / "agent.html"
@@ -452,7 +452,7 @@ static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
-@app.post("/sow/upload")
+@app.post("/sow/upload", operation_id="sow_upload")
 async def sow_upload(
     file: UploadFile = File(...),
     customer: Optional[str] = Form(default=None),
@@ -489,7 +489,7 @@ async def sow_upload(
     return {"sow": sow}
 
 
-@app.get("/sow")
+@app.get("/sow", operation_id="sow_form")
 async def sow_form():
     return {
         "html": """
@@ -519,7 +519,7 @@ class AgentRunRequest(BaseModel):
     order_id: Optional[str] = Field(default=None, description="Current order context. Default for tools if user says 'this order'.")
 
 
-@app.post("/agent/run")
+@app.post("/agent/run", operation_id="agent_run")
 async def agent_run(req: AgentRunRequest):
     try:
         client = _get_mcp_client()
@@ -543,6 +543,7 @@ async def agent_run(req: AgentRunRequest):
             "    \"additions\": [{ \"item\": \"Scientist Flat Fee\", \"quantity\": 10, \"unit_cost\": 3500 }]\n"
             "  } . Do NOT send free-text or nested strings. You may omit line_total; the server computes it.\n"
             "- Accept synonyms in user input (qty, q, price, unit price), but ALWAYS send the API fields as quantity and unit_cost in the final tool call.\n"
+            "- Omit optional fields when not set. Do NOT send null for optional string fields (e.g., omit 'prompt' instead of sending null).\n"
             f"- Current order context: {req.order_id or '(none provided)'} . When the user says 'this order' or omits order_id for order tools, use this order id by default.\n"
             "- For PDF preview of an existing order, call orders_pdf (GET /orders/pdf/{order_id}). Only call agent_quote_pdf when you provide a body with items and subtotal.\n"
             "- Output style: Write for end users in brief, readable sentences or 2–6 short bullets. Avoid code blocks and JSON unless explicitly requested.\n"
@@ -605,7 +606,7 @@ async def agent_run(req: AgentRunRequest):
             pass
 
 
-@app.get("/cpq")
+@app.get("/cpq", operation_id="cpq_page")
 async def cpq_page():
     page = static_dir / "cpq.html"
     if page.exists():
@@ -613,15 +614,15 @@ async def cpq_page():
     return JSONResponse(status_code=404, content={"error": "cpq.html not found"})
 
 
-@app.get("/rfps")
-async def rfps_page():
-    page = static_dir / "rfps.html"
-    if page.exists():
-        return FileResponse(str(page), media_type="text/html")
-    return JSONResponse(status_code=404, content={"error": "rfps.html not found"})
+# @app.get("/rfps")
+# async def rfps_page():
+#     page = static_dir / "rfps.html"
+#     if page.exists():
+#         return FileResponse(str(page), media_type="text/html")
+#     return JSONResponse(status_code=404, content={"error": "rfps.html not found"})
 
 
-@app.get("/notetaker")
+@app.get("/notetaker", operation_id="notetaker_page")
 async def notetaker_page():
     page = static_dir / "notetaker.html"
     if page.exists():
@@ -636,7 +637,7 @@ async def notetaker_page():
     return JSONResponse(status_code=404, content={"error": "notetaker.html not found"})
 
 
-@app.get("/orders")
+@app.get("/orders", operation_id="orders_page")
 async def orders_page():
     page = static_dir / "orders.html"
     if page.exists():
@@ -764,7 +765,7 @@ async def index_all_in_milvus(order: Dict, notes: Optional[str] = None) -> None:
         # Best-effort logging only
         pass
 
-@app.post("/agent/upload")
+@app.post("/agent/upload", operation_id="agent_upload") #this is the pdf quote that is auto-generated you can download from orders page
 async def agent_upload(file: UploadFile = File(...)):
     """Upload .pdf or .docx, chunk, and insert into Milvus."""
     content = await file.read()
@@ -919,7 +920,7 @@ async def extract_line_items(text: str):
         return []
 
 
-@app.post("/agent/quote_pdf")
+@app.post("/agent/quote_pdf", operation_id="agent_quote_pdf")
 async def agent_quote_pdf(payload: Dict):
     """Generate a PDF from provided items and subtotal; return inline for a new tab."""
     if canvas is None:
@@ -986,7 +987,7 @@ async def agent_quote_pdf(payload: Dict):
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
 
-@app.get("/orders/pdf/{order_id}")
+@app.get("/orders/pdf/{order_id}", operation_id="orders_pdf")
 async def orders_pdf(order_id: str):
     if canvas is None:
         return JSONResponse(status_code=400, content={"error": "reportlab not installed"})
@@ -1048,7 +1049,7 @@ async def orders_pdf(order_id: str):
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
 
-@app.get("/logs/data")
+@app.get("/logs/data", operation_id="logs_data")
 async def logs_data(limit: int = 20, offset: int = 0):
     return {"logs": list_logs(limit=limit, offset=offset)}
 
@@ -1060,7 +1061,7 @@ class LogEmit(BaseModel):
     prompt: str | None = None
 
 
-@app.post("/logs/emit")
+@app.post("/logs/emit", operation_id="logs_emit")
 async def logs_emit(body: LogEmit):
     try:
         rec = append_log({
@@ -1169,7 +1170,7 @@ class PricingUpdate(BaseModel):
     prompt: Optional[str] = None
 
 
-@app.get("/pricing/{order_id}")
+@app.get("/pricing/{order_id}", operation_id="pricing_page")
 async def pricing_page(order_id: str):
     page = static_dir / "pricing.html"
     if page.exists():
@@ -1177,7 +1178,7 @@ async def pricing_page(order_id: str):
     return JSONResponse(status_code=404, content={"error": "pricing.html not found"})
 
 
-@app.get("/pricing/data/{order_id}")
+@app.get("/pricing/data/{order_id}", operation_id="pricing_data")
 async def pricing_data(order_id: str):
     order = get_order(order_id)
     if not order:
@@ -1229,7 +1230,7 @@ async def pricing_data(order_id: str):
     }
 
 
-@app.post("/pricing/save/{order_id}")
+@app.post("/pricing/save/{order_id}", operation_id="pricing_save")
 async def pricing_save(order_id: str, body: PricingUpdate, _auth=Depends(require_auth)):
     effective_prompt = body.prompt if getattr(body, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
     updated = update_items(order_id, (body.items or []), prompt=effective_prompt, tool_name="pricing_save")
