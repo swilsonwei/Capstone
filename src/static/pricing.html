@@ -292,11 +292,22 @@
           if (updated.length) lines.push(`Updated ${updated.length} order(s).`);
           if (createdId) lines.push(`Created order.`);
           if (Array.isArray(payload.orders) && payload.orders.length){
-            lines.push(`Selected ${payload.orders.length} order(s).`);
+            try {
+              const rows = payload.orders.map((o, i) => {
+                const id = o.id || 'N/A';
+                const cust = (o.customer || 'Unknown');
+                const subtotal = Number(o.subtotal || 0);
+                const money = `$${subtotal.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+                return `${i + 1}. ${cust} — ${id} — ${money}`;
+              });
+              lines.push(`Top ${payload.orders.length} by subtotal:\n` + rows.join('\n'));
+            } catch {
+              lines.push(`Selected ${payload.orders.length} order(s).`);
+            }
           }
           if (payload.notes) lines.push(String(payload.notes).endsWith('.') ? payload.notes : payload.notes + '.');
           if (payload.message && !lines.length) lines.push(String(payload.message));
-          return lines.length ? lines.join(' ') : 'Done.';
+          return lines.length ? lines.join('\n') : 'Done.';
         }
         return 'Done.';
       }

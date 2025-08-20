@@ -1845,10 +1845,26 @@ class RemoveItemRequest(BaseModel):
 async def remove_order_item(payload: RemoveItemRequest, _auth=Depends(require_auth)) -> Dict:
     """Remove a single line item by item_id or name substring."""
     op: dict = {"op": "remove"}
-    if payload.item_id:
-        op["item_id"] = payload.item_id
-    if payload.item:
-        op["item"] = payload.item
+    # Be forgiving: if item_id is actually a name string, fall back to name-based removal
+    existing = get_order(payload.order_id)
+    provided_id = (payload.item_id or "").strip() if getattr(payload, "item_id", None) else ""
+    provided_name = (payload.item or "").strip() if getattr(payload, "item", None) else ""
+    matched_id = False
+    if existing and provided_id:
+        try:
+            for it in existing.get("items", []) or []:
+                if str(it.get("item_id")) == provided_id:
+                    matched_id = True
+                    break
+        except Exception:
+            matched_id = False
+    if matched_id:
+        op["item_id"] = provided_id
+    else:
+        # Prefer explicit item name if provided; otherwise treat provided_id as a name hint
+        name_hint = provided_name or provided_id
+        if name_hint:
+            op["item"] = name_hint
     effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
     updated = patch_items(payload.order_id, [op])
     if not updated:
