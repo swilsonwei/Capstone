@@ -7,12 +7,3 @@ milvus_exports/
 data/
 cloud-vectordb-examples/
 cloud-vectordb-examples/python/config.ini
-.venv/
-.env
-__pycache__/
-.DS_Store
-milvusfiles/
-milvus_exports/
-data/
-cloud-vectordb-examples/
-cloud-vectordb-examples/python/config.ini
