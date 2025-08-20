@@ -374,6 +374,18 @@ def _looks_like_confirmation(text: str | None) -> bool:
     s = str(text).strip().lower()
     return s in {"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please do", "do it", "proceed"} or s in {"no", "n", "nope", "don't", "do not", "cancel"}
 
+def _looks_like_short_followup(text: str | None) -> bool:
+    if not text:
+        return False
+    s = str(text).strip().lower()
+    if not s:
+        return False
+    # Heuristic: very short follow-ups like "why?", "how?", "what next?"
+    if len(s) <= 40 and len(s.split()) <= 6:
+        import re as _re
+        return bool(_re.match(r"^(why|how|what|where|which|who|ok|okay|got it|understood|explain)", s))
+    return False
+
 def _audit_prompt_context(fallback: Optional[str] = None) -> str:
     """Return a concise prompt summary for audit logs.
 
@@ -388,7 +400,11 @@ def _audit_prompt_context(fallback: Optional[str] = None) -> str:
             if _looks_like_confirmation(user_s):
                 a = recent_assistant_message()
                 if a:
-                    return f"{user_s} — Follow-up: {_summarize_text(a, 200)}"
+                    return _shorten(f"{user_s} — Follow-up: {_summarize_text(a, 200)}", 200)
+            if _looks_like_short_followup(user_s):
+                a = recent_assistant_message()
+                if a:
+                    return _shorten(f"{user_s} — Context: {_summarize_text(a, 200)}", 200)
             return user_s
         return _summarize_text(AGENT_PROMPT.get(), 200) or _summarize_text(fallback, 200)
     except Exception:
@@ -579,9 +595,9 @@ async def agent_run(req: AgentRunRequest):
 
                 "## Safety Rules\n"
                 "- Avoid modifying source entities unless requested.\n"
-                "- Ensure idempotency: don’t duplicate actions.\n"
+                "- Ensure idempotency: don't duplicate actions.\n"
               #  "- Never perform actions outside defined tool contracts.\n"
-                "- Decline explicit/sexual content, pornography, graphic violence, self-harm, or illegal activity requests: 'We can’t do that in this app.' Offer in-scope alternatives if helpful.\n"
+                "- Decline explicit/sexual content, pornography, graphic violence, self-harm, or illegal activity requests: 'We can't do that in this app.' Offer in-scope alternatives if helpful.\n"
 
                 "## Confirmation & Scope\n"
                 "- If a request includes unsupported actions (e.g., 'upload to Instagram'), decline them in the same message where you confirm supported ones.\n"
@@ -590,14 +606,21 @@ async def agent_run(req: AgentRunRequest):
 
                 "## Tool Mapping Patterns\n"
                 "- add_items_to_order: adding new line items to an order\n"
+                "- remove_order_item: remove a single line item by id or name substring\n"
                 "- patch_order_items: removing or editing existing line items\n"
                 "- update_order_customer: updating customer details\n"
                 "- clone_order: for explicit requests to duplicate or variant an order\n"
                 "- list_orders: sort through orders, for example, recent orders, or orders by customer / subtotal\n"
+                "- add_items_to_orders_bulk: add one or more line items to multiple orders in one call\n"
                 "- update_orders_status_bulk: updating the status of multiple orders\n"
                 "- orders_pdf: preview an existing order\n"
                 "- search_for_documents: searching for documents in Milvus\n"
                 "- add_document: adding a document to Milvus\n"
+
+                "## Add/Remove Behaviors\n"
+                "- For clearly phrased adds like 'add a service fee 1500', execute add_items_to_order without extra confirmation. Ask to confirm only if the user explicitly says 'another', 'again', or if multiple conflicting interpretations exist.\n"
+                "- For removals like 'remove the flow cytometry line item', prefer remove_order_item with the item name; if multiple matches, ask one brief clarification and list candidates.\n"
+                "- For bulk adds like 'add Moderna Tax $1000 to all Moderna orders': call list_orders → filter by customer ('Moderna', case-insensitive) → send one add_items_to_orders_bulk with those ids and additions [{item:'Moderna Tax', quantity:1, unit_cost:1000}]. Avoid duplicates by name if an order already contains the same item.\n"
 
                 "## Formatting & Output\n"
                 "- Always use JSON format matching tool schemas. Omit optional fields when unset.\n"
@@ -762,6 +785,7 @@ async def index_order_in_milvus(order: Dict, log: bool = True) -> int:
                     "type": "order_indexed_milvus",
                     "order_id": order_id,
                     "details": {"items_indexed": len(tasks)},
+                    "prompt": "Added new information to our Vector RAG to improve our AI",
                 })
             except Exception:
                 pass
@@ -823,6 +847,7 @@ async def index_all_in_milvus(order: Dict, notes: Optional[str] = None) -> None:
             "type": "ingest_indexed_milvus",
             "order_id": order_id,
             "details": {"items_indexed": items_indexed, "note_chunks": note_chunks},
+            "prompt": "Added new information to our Vector RAG to improve our AI",
         })
     except Exception:
         # Best-effort logging only
@@ -924,7 +949,7 @@ async def agent_upload(file: UploadFile = File(...)):
         "order_id": order.get("id"),
         "items_count": len(normalized_items),
         "subtotal": subtotal,
-        "prompt": (_summarize_text(recent_user_prompt(), 200) or _summarize_text(AGENT_PROMPT.get(), 200)),
+        "prompt": "Uploaded a file via CPQ and saved as an order.",
         "tool_name": "agent_upload",
         "details": {"mcp_client_triggered": True, "customer": (extracted_customer or "")},
     })
@@ -1808,6 +1833,72 @@ async def patch_order_items(payload: PatchItemsRequest, _auth=Depends(require_au
         "tool_name": "patch_order_items",
     })
     return {"order": updated}
+
+# Lightweight single-remove endpoint for convenience
+class RemoveItemRequest(BaseModel):
+    order_id: str
+    item_id: Optional[str] = None
+    item: Optional[str] = None
+    prompt: Optional[str] = None
+
+@app.post("/orders/remove_item", operation_id="remove_order_item")
+async def remove_order_item(payload: RemoveItemRequest, _auth=Depends(require_auth)) -> Dict:
+    """Remove a single line item by item_id or name substring."""
+    op: dict = {"op": "remove"}
+    if payload.item_id:
+        op["item_id"] = payload.item_id
+    if payload.item:
+        op["item"] = payload.item
+    effective_prompt = payload.prompt if getattr(payload, "prompt", None) else (AGENT_PROMPT.get() or recent_agent_prompt())
+    updated = patch_items(payload.order_id, [op])
+    if not updated:
+        return JSONResponse(status_code=404, content={"error": "order not found or item not matched"})
+    append_log({
+        "type": "order_item_removed",
+        "order_id": payload.order_id,
+        "details": {k: v for k, v in op.items() if k != "op"},
+        "prompt": _audit_prompt_context(effective_prompt),
+        "tool_name": "remove_order_item",
+    })
+    return {"order": updated}
+
+# Bulk add items to multiple orders
+class BulkAdditions(BaseModel):
+    ids: list[str]
+    additions: list = Field(default_factory=list, description="List of {item, quantity, unit_cost}")
+    prompt: Optional[str] = None
+
+@app.post("/orders/add_items/bulk", operation_id="add_items_to_orders_bulk")
+async def add_items_to_orders_bulk(payload: BulkAdditions, _auth=Depends(require_auth)) -> Dict:
+    ids = list(payload.ids or [])
+    if not ids:
+        return JSONResponse(status_code=400, content={"error": "missing ids"})
+    # Normalize additions once
+    additions_n, _ = _normalize_items(payload.additions)
+    effective_prompt = payload.prompt if payload.prompt else (AGENT_PROMPT.get() or recent_agent_prompt())
+    updated_ids: list[str] = []
+    for oid in ids:
+        try:
+            existing = get_order(oid)
+            if not existing:
+                continue
+            base = list(existing.get("items") or [])
+            # Prevent duplicate by same name (case-insensitive) when adding
+            existing_names = {str(i.get("item","")) .strip().lower() for i in base}
+            filtered_adds = [a for a in additions_n if str(a.get("item","")) .strip().lower() not in existing_names]
+            merged = base + filtered_adds
+            res = update_items(oid, merged, prompt=effective_prompt, tool_name="add_items_to_orders_bulk")
+            if res:
+                updated_ids.append(oid)
+        } except Exception:
+            pass
+    append_log({
+        "type": "order_items_added_bulk",
+        "details": {"ids": updated_ids, "additions": additions_n},
+        "prompt": _audit_prompt_context(effective_prompt),
+        "tool_name": "add_items_to_orders_bulk",
+    })
+    return {"updated_ids": updated_ids}
 
 
 @app.post("/orders/variant", operation_id="create_variant_order")
