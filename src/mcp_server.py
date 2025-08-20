@@ -1890,7 +1890,7 @@ async def add_items_to_orders_bulk(payload: BulkAdditions, _auth=Depends(require
             res = update_items(oid, merged, prompt=effective_prompt, tool_name="add_items_to_orders_bulk")
             if res:
                 updated_ids.append(oid)
-        } except Exception:
+        except Exception:
             pass
     append_log({
         "type": "order_items_added_bulk",
