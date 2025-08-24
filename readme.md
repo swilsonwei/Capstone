@@ -12,3 +12,9 @@ Platform Components + AI:
         a) Automated Quote Drafting
     3) Order Management
         a) Includes an audit trail
+
+Testing:
+    - RAG integration tests with 5 queries via pytest. Run:
+      1) pip install -r requirements.txt
+      2) export OPENAI_API_KEY=... (and MILVUS_* if you want live retrieval)
+      3) pytest -q

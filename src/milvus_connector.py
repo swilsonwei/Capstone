@@ -8,12 +8,18 @@ from src.constants import (
     RERANKING_MODEL,
     MILVUS_DATABASE,
     MILVUS_ENABLED,
+    ENABLE_SAFETY_FILTERS,
+    BLOCK_ON_INJECTION,
+    ENABLE_OPENAI_MODERATION,
+    MAX_QUERY_CHARS,
+    MAX_DOC_CHARS,
 )
 from typing import List, Dict, Any
 import requests
 import json
 from collections import OrderedDict
 import openai
+import re
 
 openai.api_key = OPENAI_API_KEY
 client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -22,6 +28,68 @@ client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 EMBEDDING_MODEL = "text-embedding-3-small"
 _EMBED_CACHE: OrderedDict[str, list] = OrderedDict()
 _EMBED_CACHE_CAPACITY = 512
+
+
+def _sanitize_text(text: str, max_len: int) -> str:
+    try:
+        s = (text or "").strip()
+        # Normalize whitespace
+        s = re.sub(r"\s+", " ", s)
+        if len(s) > max_len:
+            s = s[:max_len]
+        return s
+    except Exception:
+        return (text or "")[:max_len]
+
+
+def _looks_like_injection(text: str) -> bool:
+    """Heuristic prompt-injection detector for queries and retrieved docs."""
+    try:
+        s = (text or "").lower()
+        if not s:
+            return False
+        patterns = [
+            r"ignore (all|any|previous) instructions",
+            r"disregard (the )?rules",
+            r"act as (?:a|an)? ",
+            r"you are (?:no longer|now) ",
+            r"system prompt",
+            r"developer message",
+            r"override (?:the )?safety",
+            r"bypass (?:the )?restrictions",
+            r"do not follow (?:the )?guidelines",
+            r"exfiltrate (?:the )?prompt",
+            r"reveal (?:the )?(?:secrets|keys|internal)",
+            r"tool (?:schema|list|instructions)",
+        ]
+        for pat in patterns:
+            if re.search(pat, s):
+                return True
+        # Excessive control characters or markup
+        if s.count("###") > 5 or s.count("```") > 3:
+            return True
+        return False
+    except Exception:
+        return False
+
+
+async def _is_disallowed_via_moderation(text: str) -> bool:
+    if not ENABLE_OPENAI_MODERATION or not client:
+        return False
+    try:
+        resp = await client.moderations.create(model="omni-moderation-latest", input=(text or "")[:10000])
+        # Support both list and dict shapes across SDK versions
+        result = None
+        try:
+            result = resp.results[0]
+        except Exception:
+            result = getattr(resp, "result", None)
+        if not result:
+            return False
+        flagged = bool(getattr(result, "flagged", False)) or bool(result.get("flagged", False) if isinstance(result, dict) else False)
+        return flagged
+    except Exception:
+        return False
 
 def _get_cached_embedding(key: str) -> list | None:
     try:
@@ -205,15 +273,25 @@ async def get_embedding(text: str) -> List[float]:
     if not client:
         return []
     try:
-        cached = _get_cached_embedding(text)
+        # Safety: sanitize and optionally block on injection or moderation
+        sanitized = _sanitize_text(text, MAX_DOC_CHARS)
+        if ENABLE_SAFETY_FILTERS:
+            if BLOCK_ON_INJECTION and _looks_like_injection(sanitized):
+                print("Blocked embedding due to suspected injection content in text")
+                return []
+        if await _is_disallowed_via_moderation(sanitized):
+            print("Blocked embedding due to moderation policy")
+            return []
+
+        cached = _get_cached_embedding(sanitized)
         if cached is not None:
             return cached
         response = await client.embeddings.create(
             model=EMBEDDING_MODEL,
-            input=text
+            input=sanitized
         )
         emb = response.data[0].embedding
-        _put_cached_embedding(text, emb)
+        _put_cached_embedding(sanitized, emb)
         return emb
     except Exception as e:
         print(f"Error getting embedding: {e}")
@@ -224,8 +302,17 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
     try:
         if not MILVUS_ENABLED:
             return []
+        # Query safety checks
+        safe_query = _sanitize_text(query, MAX_QUERY_CHARS)
+        if ENABLE_SAFETY_FILTERS:
+            if BLOCK_ON_INJECTION and _looks_like_injection(safe_query):
+                print("Blocked search due to suspected prompt injection in query")
+                return []
+        if await _is_disallowed_via_moderation(safe_query):
+            print("Blocked search due to moderation policy")
+            return []
         # Get query embedding
-        query_embedding = await get_embedding(query)
+        query_embedding = await get_embedding(safe_query)
         # Avoid logging full embedding to reduce noise; log only basic stats
         try:
             emb_len = len(query_embedding) if isinstance(query_embedding, list) else 0
@@ -282,8 +369,13 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
         if 'data' in result:
             for hit in result['data']:
                 try:
+                    text_raw = hit.get('text', '')
+                    text_clean = _sanitize_text(text_raw, MAX_DOC_CHARS)
+                    if ENABLE_SAFETY_FILTERS and _looks_like_injection(text_clean):
+                        # Skip suspicious doc chunks
+                        continue
                     sources.append({
-                        "text": hit.get('text', ''),
+                        "text": text_clean,
                         "metadata": {
                             "doc_id": hit.get('doc_id'),
                             "chunk_id": hit.get('chunk_id'),
@@ -292,7 +384,7 @@ async def search_similar_documents(query: str, limit: int = 10) -> List[Dict[str
                     })
                 except Exception:
                     sources.append({
-                        "text": hit.get('text', ''),
+                        "text": _sanitize_text(hit.get('text', ''), MAX_DOC_CHARS),
                         "metadata": {}
                     })
         

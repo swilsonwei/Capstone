@@ -39,6 +39,17 @@ ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "false").lower() == "true"
 RERANKING_MODEL = os.getenv("RERANKING_MODEL", "gpt-4o-mini")  # Chat model used for prompt-based reranking
 INITIAL_SEARCH_MULTIPLIER = int(os.getenv("INITIAL_SEARCH_MULTIPLIER", "3"))  # How many more results to fetch initially
 
+# Abuse-protection / RAG safety configuration
+ENABLE_SAFETY_FILTERS = os.getenv("ENABLE_SAFETY_FILTERS", "true").lower() == "true"
+BLOCK_ON_INJECTION = os.getenv("BLOCK_ON_INJECTION", "true").lower() == "true"
+ENABLE_OPENAI_MODERATION = os.getenv("ENABLE_OPENAI_MODERATION", "false").lower() == "true"
+MAX_QUERY_CHARS = int(os.getenv("MAX_QUERY_CHARS", "600"))
+MAX_DOC_CHARS = int(os.getenv("MAX_DOC_CHARS", "4000"))
+
+# Simple per-IP rate limiting (token bucket)
+RATE_LIMIT_RPS = float(os.getenv("RATE_LIMIT_RPS", "3"))
+RATE_LIMIT_BURST = int(os.getenv("RATE_LIMIT_BURST", "6"))
+
 
 mcp_config = {
     "mcpServers": {

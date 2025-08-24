@@ -16,3 +16,5 @@ reportlab>=4.2.5
 supabase>=2.6.0
 clerk-backend-api>=3.1.11
 PyJWT[crypto]>=2.9.0
+pytest>=8.2.0
+pytest-asyncio>=0.23.8
